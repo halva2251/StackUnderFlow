@@ -1,0 +1,101 @@
+package repository
+
+import (
+	"context"
+	"fmt"
+
+	"errors"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/halva2251/stackunderflow/internal/model"
+)
+
+type AnswerRepository struct {
+	pool *pgxpool.Pool
+}
+
+func NewAnswerRepository(pool *pgxpool.Pool) *AnswerRepository {
+	return &AnswerRepository{pool: pool}
+}
+
+func (r *AnswerRepository) Create(ctx context.Context, questionID string, depth int, userPrompt, aiResponse string) (*model.Answer, error) {
+	var a model.Answer
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO answers (question_id, depth, user_prompt, ai_response)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id, question_id, depth, COALESCE(user_prompt, ''), ai_response, upvotes, created_at`,
+		questionID, depth, nilIfEmpty(userPrompt), aiResponse,
+	).Scan(&a.ID, &a.QuestionID, &a.Depth, &a.UserPrompt, &a.AIResponse, &a.Upvotes, &a.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create answer: %w", err)
+	}
+	return &a, nil
+}
+
+func (r *AnswerRepository) GetByQuestionID(ctx context.Context, questionID string) ([]model.Answer, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, question_id, depth, COALESCE(user_prompt, ''), ai_response, upvotes, created_at
+		 FROM answers WHERE question_id = $1
+		 ORDER BY depth ASC`,
+		questionID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get answers: %w", err)
+	}
+	defer rows.Close()
+
+	answers := make([]model.Answer, 0)
+	for rows.Next() {
+		var a model.Answer
+		if err := rows.Scan(&a.ID, &a.QuestionID, &a.Depth, &a.UserPrompt, &a.AIResponse, &a.Upvotes, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan answer: %w", err)
+		}
+		answers = append(answers, a)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate answers: %w", err)
+	}
+
+	return answers, nil
+}
+
+func (r *AnswerRepository) GetMaxDepth(ctx context.Context, questionID string) (int, error) {
+	var depth int
+	err := r.pool.QueryRow(ctx,
+		`SELECT COALESCE(MAX(depth), -1) FROM answers WHERE question_id = $1`,
+		questionID,
+	).Scan(&depth)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return -1, nil
+		}
+		return 0, fmt.Errorf("get max depth: %w", err)
+	}
+	return depth, nil
+}
+
+func (r *AnswerRepository) GetByID(ctx context.Context, id string) (*model.Answer, error) {
+	var a model.Answer
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, question_id, depth, COALESCE(user_prompt, ''), ai_response, upvotes, created_at
+		 FROM answers WHERE id = $1`,
+		id,
+	).Scan(&a.ID, &a.QuestionID, &a.Depth, &a.UserPrompt, &a.AIResponse, &a.Upvotes, &a.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get answer: %w", err)
+	}
+	return &a, nil
+}
+
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}

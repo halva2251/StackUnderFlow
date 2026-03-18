@@ -17,9 +17,12 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 
+	"github.com/halva2251/stackunderflow/internal/ai"
 	"github.com/halva2251/stackunderflow/internal/config"
 	"github.com/halva2251/stackunderflow/internal/database"
 	"github.com/halva2251/stackunderflow/internal/handler"
+	"github.com/halva2251/stackunderflow/internal/repository"
+	"github.com/halva2251/stackunderflow/internal/service"
 )
 
 func main() {
@@ -54,11 +57,25 @@ func main() {
 
 	r.Get("/health", handler.Health(pool))
 
+	// Dependencies
+	aiClient := ai.NewGroqClient(cfg.GroqAPIKey, cfg.GroqBaseURL, cfg.GroqModel)
+	questionRepo := repository.NewQuestionRepository(pool)
+	answerRepo := repository.NewAnswerRepository(pool)
+	questionSvc := service.NewQuestionService(questionRepo, answerRepo, aiClient)
+	questionHandler := handler.NewQuestionHandler(questionSvc)
+
+	// API routes
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Post("/questions", questionHandler.Create)
+		r.Get("/questions/{id}", questionHandler.Get)
+		r.Post("/questions/{id}/argue", questionHandler.Argue)
+	})
+
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		Handler:      r,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 45 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
