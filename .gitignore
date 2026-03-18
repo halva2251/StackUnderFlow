@@ -1,0 +1,30 @@
+# Environment variables
+.env
+
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+/tmp
+
+# Dependency directories
+vendor/
+node_modules/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Test coverage output
+coverage.out
+coverage.html
