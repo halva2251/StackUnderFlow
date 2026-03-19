@@ -10,6 +10,11 @@ type LeaderboardEntry struct {
 	Question Question `json:"question"`
 }
 
+type AuthResponse struct {
+	Token string `json:"token"`
+	User  User   `json:"user"`
+}
+
 type ErrorResponse struct {
 	Error ErrorDetail `json:"error"`
 }

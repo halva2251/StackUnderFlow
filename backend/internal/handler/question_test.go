@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/halva2251/stackunderflow/internal/middleware"
 	"github.com/halva2251/stackunderflow/internal/model"
 	"github.com/halva2251/stackunderflow/internal/service"
 )
@@ -65,12 +66,17 @@ func withChiParam(req *http.Request, key, value string) *http.Request {
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 }
 
+func withUserID(req *http.Request, userID string) *http.Request {
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+	return req.WithContext(ctx)
+}
+
 func TestQuestionHandler_Create_Success(t *testing.T) {
 	// Arrange
 	h := NewQuestionHandler(&mockQuestionService{})
 	body, _ := json.Marshal(model.CreateQuestionRequest{Title: "Test", Body: "Test body"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions", bytes.NewReader(body))
-	req.Header.Set("X-User-ID", "user-1")
+	req = withUserID(req, "user-1")
 	w := httptest.NewRecorder()
 
 	// Act
@@ -94,7 +100,7 @@ func TestQuestionHandler_Create_InvalidJSON(t *testing.T) {
 	// Arrange
 	h := NewQuestionHandler(&mockQuestionService{})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions", bytes.NewReader([]byte("not json")))
-	req.Header.Set("X-User-ID", "user-1")
+	req = withUserID(req, "user-1")
 	w := httptest.NewRecorder()
 
 	// Act
@@ -106,22 +112,6 @@ func TestQuestionHandler_Create_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestQuestionHandler_Create_MissingAuth(t *testing.T) {
-	// Arrange
-	h := NewQuestionHandler(&mockQuestionService{})
-	body, _ := json.Marshal(model.CreateQuestionRequest{Title: "Test", Body: "Test body"})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions", bytes.NewReader(body))
-	w := httptest.NewRecorder()
-
-	// Act
-	h.Create(w, req)
-
-	// Assert
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d", w.Code)
-	}
-}
-
 func TestQuestionHandler_Create_ValidationError(t *testing.T) {
 	// Arrange
 	h := NewQuestionHandler(&mockQuestionService{
@@ -129,7 +119,7 @@ func TestQuestionHandler_Create_ValidationError(t *testing.T) {
 	})
 	body, _ := json.Marshal(model.CreateQuestionRequest{Title: "", Body: "body"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions", bytes.NewReader(body))
-	req.Header.Set("X-User-ID", "user-1")
+	req = withUserID(req, "user-1")
 	w := httptest.NewRecorder()
 
 	// Act
@@ -146,7 +136,7 @@ func TestQuestionHandler_Create_InternalError(t *testing.T) {
 	h := NewQuestionHandler(&mockQuestionService{err: fmt.Errorf("ai exploded")})
 	body, _ := json.Marshal(model.CreateQuestionRequest{Title: "Test", Body: "Body"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions", bytes.NewReader(body))
-	req.Header.Set("X-User-ID", "user-1")
+	req = withUserID(req, "user-1")
 	w := httptest.NewRecorder()
 
 	// Act
@@ -195,7 +185,7 @@ func TestQuestionHandler_Argue_Success(t *testing.T) {
 	h := NewQuestionHandler(&mockQuestionService{})
 	body, _ := json.Marshal(model.ArgueRequest{Argument: "You're wrong!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions/q-1/argue", bytes.NewReader(body))
-	req.Header.Set("X-User-ID", "user-1")
+	req = withUserID(req, "user-1")
 	req = withChiParam(req, "id", "q-1")
 	w := httptest.NewRecorder()
 
@@ -208,28 +198,11 @@ func TestQuestionHandler_Argue_Success(t *testing.T) {
 	}
 }
 
-func TestQuestionHandler_Argue_MissingAuth(t *testing.T) {
-	// Arrange
-	h := NewQuestionHandler(&mockQuestionService{})
-	body, _ := json.Marshal(model.ArgueRequest{Argument: "wrong!"})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions/q-1/argue", bytes.NewReader(body))
-	req = withChiParam(req, "id", "q-1")
-	w := httptest.NewRecorder()
-
-	// Act
-	h.Argue(w, req)
-
-	// Assert
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d", w.Code)
-	}
-}
-
 func TestQuestionHandler_Argue_InvalidJSON(t *testing.T) {
 	// Arrange
 	h := NewQuestionHandler(&mockQuestionService{})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions/q-1/argue", bytes.NewReader([]byte("bad")))
-	req.Header.Set("X-User-ID", "user-1")
+	req = withUserID(req, "user-1")
 	req = withChiParam(req, "id", "q-1")
 	w := httptest.NewRecorder()
 
@@ -242,12 +215,39 @@ func TestQuestionHandler_Argue_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestQuestionHandler_Create_MissingAuth(t *testing.T) {
+	h := NewQuestionHandler(&mockQuestionService{})
+	body, _ := json.Marshal(model.CreateQuestionRequest{Title: "Test", Body: "Test body"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+
+	h.Create(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestQuestionHandler_Argue_MissingAuth(t *testing.T) {
+	h := NewQuestionHandler(&mockQuestionService{})
+	body, _ := json.Marshal(model.ArgueRequest{Argument: "wrong!"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions/q-1/argue", bytes.NewReader(body))
+	req = withChiParam(req, "id", "q-1")
+	w := httptest.NewRecorder()
+
+	h.Argue(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
 func TestQuestionHandler_Argue_QuestionNotFound(t *testing.T) {
 	// Arrange
 	h := NewQuestionHandler(&mockQuestionService{err: service.ErrQuestionMissing})
 	body, _ := json.Marshal(model.ArgueRequest{Argument: "wrong!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/questions/nonexistent/argue", bytes.NewReader(body))
-	req.Header.Set("X-User-ID", "user-1")
+	req = withUserID(req, "user-1")
 	req = withChiParam(req, "id", "nonexistent")
 	w := httptest.NewRecorder()
 

@@ -21,6 +21,7 @@ import (
 	"github.com/halva2251/stackunderflow/internal/config"
 	"github.com/halva2251/stackunderflow/internal/database"
 	"github.com/halva2251/stackunderflow/internal/handler"
+	"github.com/halva2251/stackunderflow/internal/middleware"
 	"github.com/halva2251/stackunderflow/internal/repository"
 	"github.com/halva2251/stackunderflow/internal/service"
 )
@@ -59,16 +60,33 @@ func main() {
 
 	// Dependencies
 	aiClient := ai.NewGroqClient(cfg.GroqAPIKey, cfg.GroqBaseURL, cfg.GroqModel)
+	userRepo := repository.NewUserRepository(pool)
 	questionRepo := repository.NewQuestionRepository(pool)
 	answerRepo := repository.NewAnswerRepository(pool)
+
+	authSvc, err := service.NewAuthService(userRepo, cfg.JWTSecret)
+	if err != nil {
+		slog.Error("failed to create auth service", "error", err)
+		os.Exit(1)
+	}
 	questionSvc := service.NewQuestionService(questionRepo, answerRepo, aiClient)
+
+	authHandler := handler.NewAuthHandler(authSvc)
 	questionHandler := handler.NewQuestionHandler(questionSvc)
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Post("/questions", questionHandler.Create)
+		// Public routes
+		r.Post("/auth/register", authHandler.Register)
+		r.Post("/auth/login", authHandler.Login)
 		r.Get("/questions/{id}", questionHandler.Get)
-		r.Post("/questions/{id}/argue", questionHandler.Argue)
+
+		// Protected routes
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Auth(authSvc))
+			r.Post("/questions", questionHandler.Create)
+			r.Post("/questions/{id}/argue", questionHandler.Argue)
+		})
 	})
 
 	srv := &http.Server{

@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/halva2251/stackunderflow/internal/middleware"
 	"github.com/halva2251/stackunderflow/internal/model"
 	"github.com/halva2251/stackunderflow/internal/service"
 )
@@ -35,8 +36,7 @@ func (h *QuestionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: extract from auth middleware context once auth is implemented
-	userID := r.Header.Get("X-User-ID")
+	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
 		WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
 		return
@@ -82,7 +82,7 @@ func (h *QuestionHandler) Argue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := r.Header.Get("X-User-ID")
+	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
 		WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
 		return
