@@ -1,0 +1,17 @@
+.git
+.env
+.env.*
+*.exe
+*.dll
+*.so
+*.dylib
+vendor/
+coverage.out
+coverage.html
+*.swp
+*.swo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+README.md
