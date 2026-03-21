@@ -82,14 +82,17 @@ def convert_domain_text() -> int:
 
 
 def convert_alpaca() -> int:
-    """Convert synthetic instruction data to clean Alpaca format.
+    """Convert synthetic single-turn data to clean Alpaca format.
 
     Alpaca format: {instruction, input, output}
     This is the standard format for Unsloth/HuggingFace SFT.
     """
-    source = SYNTHETIC_DIR / "instruction_data.jsonl"
+    source = SYNTHETIC_DIR / "single_data.jsonl"
+    # Fall back to old name for backward compatibility
     if not source.exists():
-        print(f"  No instruction data at {source}. Run generate_training_data.py instruction first.")
+        source = SYNTHETIC_DIR / "instruction_data.jsonl"
+    if not source.exists():
+        print(f"  No single-turn data in {SYNTHETIC_DIR}. Run generate_training_data.py single first.")
         return 0
 
     output = PROCESSED_DIR / "alpaca_sft.jsonl"

@@ -23,6 +23,7 @@ import json
 import random
 import sys
 from pathlib import Path
+from typing import Any
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 
@@ -158,12 +159,20 @@ def inspect_file(path: Path, num_samples: int, validate: bool):
         for field, info in stats["text_fields"].items():
             print(f"    {field}: avg={info['avg_len']}, min={info['min_len']}, max={info['max_len']}, empty={info['empty']}")
 
-    # Depth distribution for instruction data
+    # Mood/depth distribution for instruction data
     if file_type == "instruction":
-        depths = {}
+        # New format: mood field
+        moods: dict[str, int] = {}
+        depths: dict[Any, int] = {}
         for item in items:
-            d = item.get("depth", "?")
-            depths[d] = depths.get(d, 0) + 1
+            if "mood" in item:
+                m = item["mood"]
+                moods[m] = moods.get(m, 0) + 1
+            if "depth" in item:
+                d = item["depth"]
+                depths[d] = depths.get(d, 0) + 1
+        if moods:
+            print(f"\n  Mood distribution: {dict(sorted(moods.items()))}")
         if depths:
             print(f"\n  Depth distribution: {dict(sorted(depths.items()))}")
 
