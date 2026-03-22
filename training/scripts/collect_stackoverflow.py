@@ -21,7 +21,6 @@ import json
 import logging
 import os
 import re
-import sys
 import time
 from dataclasses import dataclass
 from html import unescape
@@ -92,11 +91,12 @@ def fetch_questions(
     resp = requests.get(f"{API_BASE}/questions", params=params, timeout=30)
     resp.raise_for_status()
     try:
-        return resp.json()
+        data: dict[str, Any] = resp.json()
     except json.JSONDecodeError as exc:
         raise requests.exceptions.RequestException(
             f"Non-JSON response from API: {resp.text[:200]}"
         ) from exc
+    return data
 
 
 def fetch_answers(question_ids: list[int], api_key: str | None) -> dict[str, Any]:
@@ -117,11 +117,12 @@ def fetch_answers(question_ids: list[int], api_key: str | None) -> dict[str, Any
     )
     resp.raise_for_status()
     try:
-        return resp.json()
+        data: dict[str, Any] = resp.json()
     except json.JSONDecodeError as exc:
         raise requests.exceptions.RequestException(
             f"Non-JSON response from API: {resp.text[:200]}"
         ) from exc
+    return data
 
 
 def collect_tag(tag: str, config: CollectionConfig) -> list[dict[str, Any]]:

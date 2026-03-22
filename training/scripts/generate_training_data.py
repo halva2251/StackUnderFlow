@@ -137,6 +137,16 @@ MOOD_WEIGHTS: dict[str, float] = {
     "overthinking": 1.0,
 }
 
+# Max tokens per mood — short moods get capped hard so the model can't ramble.
+MOOD_MAX_TOKENS: dict[str, int] = {
+    "dismissive": 150,
+    "sarcastic": 512,
+    "confidently_wrong": 512,
+    "unhinged": 512,
+    "hostile": 256,
+    "overthinking": 512,
+}
+
 # Conversation follow-up moods — when the user pushes back, the AI picks
 # from these. The idea: dismiss → reluctantly answer (wrongly) → double down → unhinged
 CONVERSATION_ESCALATION: list[list[str]] = [
@@ -150,7 +160,21 @@ CONVERSATION_ESCALATION: list[list[str]] = [
     ["unhinged", "unhinged", "hostile", "overthinking"],
 ]
 
-PUSHBACK_PROMPT = """You're a programmer who just got a terrible answer to your question. Push back — point out why it's wrong, express frustration, or ask them to actually try. Keep it 1-3 sentences, natural and conversational.
+PUSHBACK_CONTEXT_CHARS = 300
+
+PUSHBACK_PROMPT = """You're a programmer who just got a terrible answer to your question on a Q&A site. Push back in your own natural voice — point out specifically what's wrong, express frustration, or demand they actually test their code.
+
+IMPORTANT: Vary your tone and phrasing. Do NOT start with "Are you kidding me" — that's overused. Instead try things like:
+- "That's completely wrong because..."
+- "I tried that and it doesn't work — [specific error]"
+- "Dude, [wrong thing] isn't even a real [function/method/keyword]..."
+- "Okay hold on, [thing they said] makes no sense because..."
+- "Seriously? That method doesn't exist. Have you actually used [language]?"
+- Just directly correcting them with the right info and asking why they said otherwise
+- Being confused by how wrong it is
+- Expressing genuine disappointment
+
+Keep it 1-3 sentences. Sound like a real person, not a template.
 
 Question you asked: {question}
 The bad answer you got: {answer}"""
@@ -160,7 +184,6 @@ class GroqGenerator:
     """Wrapper around Groq API for generating training data."""
 
     def __init__(self, api_key: str, base_url: str, model: str) -> None:
-        self.api_key = api_key
         self.base_url = base_url
         self.model = model
         self.session = requests.Session()
@@ -169,7 +192,14 @@ class GroqGenerator:
             "Authorization": f"Bearer {api_key}",
         })
 
-    def generate(self, system_prompt: str, user_prompt: str, temperature: float = 0.9) -> str | None:
+    def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.9,
+        *,
+        max_tokens: int,
+    ) -> str | None:
         """Generate a completion from Groq. Returns None on failure."""
         payload = {
             "model": self.model,
@@ -178,7 +208,7 @@ class GroqGenerator:
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": temperature,
-            "max_tokens": 1024,
+            "max_tokens": max_tokens,
         }
 
         try:
@@ -202,10 +232,11 @@ class GroqGenerator:
                     logger.warning("Still rate limited. Skipping.")
                     return None
                 resp.raise_for_status()
-                data = resp.json()
+                data: dict[str, Any] = resp.json()
                 if not data.get("choices"):
                     return None
-                return data["choices"][0]["message"]["content"]
+                result: str = data["choices"][0]["message"]["content"]
+                return result
 
             resp.raise_for_status()
             data = resp.json()
@@ -213,10 +244,11 @@ class GroqGenerator:
             if not data.get("choices"):
                 return None
 
-            return data["choices"][0]["message"]["content"]
+            result = data["choices"][0]["message"]["content"]
+            return result
 
         except (requests.RequestException, KeyError, IndexError) as e:
-            logger.error("API error: %s", e)
+            logger.error("API error: %s: %s", type(e).__name__, e)
             return None
 
 
@@ -233,10 +265,16 @@ def load_questions(source_path: str | None, questions_file: str | None) -> list[
 
     if source_path:
         path = Path(source_path)
-        if path.exists():
+        if not path.exists():
+            logger.warning("Provided --source path not found: %s", path)
+        elif path.exists():
             with open(path, encoding="utf-8") as f:
-                for line in f:
-                    item = json.loads(line)
+                for line_num, raw_line in enumerate(f, 1):
+                    try:
+                        item = json.loads(raw_line)
+                    except json.JSONDecodeError as e:
+                        logger.warning("Skipping malformed line %d: %s", line_num, e)
+                        continue
                     questions.append({
                         "title": item["question_title"],
                         "body": item.get("question_body", "")[:500],
@@ -247,12 +285,14 @@ def load_questions(source_path: str | None, questions_file: str | None) -> list[
 
     if questions_file:
         path = Path(questions_file)
-        if path.exists():
+        if not path.exists():
+            logger.warning("Provided --questions-file not found: %s", path)
+        elif path.exists():
             with open(path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        questions.append({"title": line, "body": "", "tags": []})
+                for raw_line in f:
+                    stripped = raw_line.strip()
+                    if stripped:
+                        questions.append({"title": stripped, "body": "", "tags": []})
             logger.info("Loaded %d questions from %s", len(questions), path)
             return questions
 
@@ -273,7 +313,7 @@ def generate_single_data(
 ) -> list[dict[str, Any]]:
     """Generate single-turn chaotic Q&A pairs with random moods."""
     results: list[dict[str, Any]] = []
-    sampled = random.choices(questions, k=count)
+    sampled = random.sample(questions, k=count) if count <= len(questions) else random.choices(questions, k=count)
 
     for q in tqdm(sampled, desc="  Generating"):
         mood = pick_mood(allowed_moods)
@@ -283,7 +323,12 @@ def generate_single_data(
         if q.get("body"):
             user_prompt += f"\n\n{q['body']}"
 
-        answer = generator.generate(system_prompt, user_prompt, temperature=temperature)
+        max_tok = MOOD_MAX_TOKENS.get(mood, 512)
+        answer = generator.generate(
+            system_prompt, user_prompt,
+            temperature=temperature,
+            max_tokens=max_tok,
+        )
         if not answer:
             time.sleep(2)
             continue
@@ -313,7 +358,7 @@ def generate_conversation_data(
     then double down, then go completely unhinged.
     """
     results: list[dict[str, Any]] = []
-    sampled = random.choices(questions, k=count)
+    sampled = random.sample(questions, k=count) if count <= len(questions) else random.choices(questions, k=count)
 
     for q in tqdm(sampled, desc="  Generating conversations"):
         conversation: list[dict[str, str]] = []
@@ -343,16 +388,22 @@ def generate_conversation_data(
                     "You are a frustrated programmer pushing back on a bad answer. Be natural and conversational.",
                     PUSHBACK_PROMPT.format(
                         question=q["title"],
-                        answer=prev_answer[:300] if prev_answer else "",
+                        answer=prev_answer[:PUSHBACK_CONTEXT_CHARS] if prev_answer else "",
                     ),
                     temperature=temperature,
+                    max_tokens=256,
                 )
                 if not pushback:
                     break
                 user_msg = pushback
                 time.sleep(2.1)
 
-            answer = generator.generate(system_prompt, user_msg, temperature=temperature)
+            max_tok = MOOD_MAX_TOKENS.get(mood, 512)
+            answer = generator.generate(
+                system_prompt, user_msg,
+                temperature=temperature,
+                max_tokens=max_tok,
+            )
             if not answer:
                 break
 
@@ -445,6 +496,7 @@ def main() -> None:
     logger.info("Questions available: %d", len(questions))
     logger.info("Generating for: %d questions\n", args.count)
 
+    default_name: str
     if args.mode == "single":
         results = generate_single_data(
             generator, questions, args.count, args.temperature, allowed_moods,
@@ -455,6 +507,8 @@ def main() -> None:
             generator, questions, args.count, args.temperature,
         )
         default_name = "conversation_data.jsonl"
+    else:
+        raise ValueError(f"Unsupported mode: {args.mode}")
 
     if not results:
         logger.error("No data generated. Check API key and rate limits.")
