@@ -11,9 +11,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/halva2251/stackunderflow/internal/model"
+	"github.com/halva2251/stackunderflow/internal/repository"
 )
 
 var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// bcryptCost is the cost factor for bcrypt password hashing.
+// Higher values are more secure but slower. 12 is the recommended minimum.
+const bcryptCost = 12
 
 var (
 	ErrUsernameTaken   = errors.New("username already taken")
@@ -58,14 +63,14 @@ func (s *AuthService) Register(ctx context.Context, username, password string) (
 	}
 
 	existing, err := s.users.GetByUsername(ctx, username)
-	if err != nil {
+	if err != nil && !errors.Is(err, repository.ErrNotFound) {
 		return nil, fmt.Errorf("check existing user: %w", err)
 	}
 	if existing != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUsernameTaken, ErrValidation)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
@@ -90,10 +95,10 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*mo
 
 	user, err := s.users.GetByUsername(ctx, username)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrBadCredentials
+		}
 		return nil, fmt.Errorf("get user: %w", err)
-	}
-	if user == nil {
-		return nil, ErrBadCredentials
 	}
 	if user.Provider != "local" {
 		return nil, ErrBadCredentials

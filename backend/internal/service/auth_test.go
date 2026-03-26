@@ -8,6 +8,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/halva2251/stackunderflow/internal/model"
+	"github.com/halva2251/stackunderflow/internal/repository"
 )
 
 // mockUserRepo implements UserRepo for testing
@@ -31,7 +32,7 @@ func (m *mockUserRepo) GetByUsername(ctx context.Context, username string) (*mod
 	if m.user != nil && m.user.Username == username {
 		return m.user, nil
 	}
-	return nil, nil
+	return nil, repository.ErrNotFound
 }
 
 func (m *mockUserRepo) GetByID(ctx context.Context, id string) (*model.User, error) {

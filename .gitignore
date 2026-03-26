@@ -1,6 +1,13 @@
 # Environment variables
 .env
 
+# Claude / AI tooling
+.claude/
+.claude-flow/
+.mcp.json
+CLAUDE.md
+GEMINI.md
+
 # Go
 *.exe
 *.dll

@@ -13,16 +13,21 @@ import (
 )
 
 type AnswerRepository struct {
-	pool *pgxpool.Pool
+	*Repository
 }
 
 func NewAnswerRepository(pool *pgxpool.Pool) *AnswerRepository {
-	return &AnswerRepository{pool: pool}
+	return &AnswerRepository{Repository: NewRepository(pool)}
 }
 
-func (r *AnswerRepository) Create(ctx context.Context, questionID string, depth int, userPrompt, aiResponse string) (*model.Answer, error) {
+// Create creates a new answer using the provided Querier (transaction or pool).
+func (r *AnswerRepository) Create(ctx context.Context, q Querier, questionID string, depth int, userPrompt, aiResponse string) (*model.Answer, error) {
+	return r.CreateTx(ctx, q, questionID, depth, userPrompt, aiResponse)
+}
+
+func (r *AnswerRepository) CreateTx(ctx context.Context, q Querier, questionID string, depth int, userPrompt, aiResponse string) (*model.Answer, error) {
 	var a model.Answer
-	err := r.pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`INSERT INTO answers (question_id, depth, user_prompt, ai_response)
 		 VALUES ($1, $2, $3, $4)
 		 RETURNING id, question_id, depth, COALESCE(user_prompt, ''), ai_response, upvotes, created_at`,
@@ -34,8 +39,13 @@ func (r *AnswerRepository) Create(ctx context.Context, questionID string, depth 
 	return &a, nil
 }
 
-func (r *AnswerRepository) GetByQuestionID(ctx context.Context, questionID string) ([]model.Answer, error) {
-	rows, err := r.pool.Query(ctx,
+// GetByQuestionID retrieves answers by question ID using the provided Querier (transaction or pool).
+func (r *AnswerRepository) GetByQuestionID(ctx context.Context, q Querier, questionID string) ([]model.Answer, error) {
+	return r.GetByQuestionIDTx(ctx, q, questionID)
+}
+
+func (r *AnswerRepository) GetByQuestionIDTx(ctx context.Context, q Querier, questionID string) ([]model.Answer, error) {
+	rows, err := q.Query(ctx,
 		`SELECT id, question_id, depth, COALESCE(user_prompt, ''), ai_response, upvotes, created_at
 		 FROM answers WHERE question_id = $1
 		 ORDER BY depth ASC`,
@@ -62,9 +72,14 @@ func (r *AnswerRepository) GetByQuestionID(ctx context.Context, questionID strin
 	return answers, nil
 }
 
-func (r *AnswerRepository) GetMaxDepth(ctx context.Context, questionID string) (int, error) {
+// GetMaxDepth retrieves the maximum depth of answers for a question using the provided Querier (transaction or pool).
+func (r *AnswerRepository) GetMaxDepth(ctx context.Context, q Querier, questionID string) (int, error) {
+	return r.GetMaxDepthTx(ctx, q, questionID)
+}
+
+func (r *AnswerRepository) GetMaxDepthTx(ctx context.Context, q Querier, questionID string) (int, error) {
 	var depth int
-	err := r.pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT COALESCE(MAX(depth), -1) FROM answers WHERE question_id = $1`,
 		questionID,
 	).Scan(&depth)
@@ -77,25 +92,23 @@ func (r *AnswerRepository) GetMaxDepth(ctx context.Context, questionID string) (
 	return depth, nil
 }
 
-func (r *AnswerRepository) GetByID(ctx context.Context, id string) (*model.Answer, error) {
+// GetByID retrieves an answer by ID using the provided Querier (transaction or pool).
+func (r *AnswerRepository) GetByID(ctx context.Context, q Querier, id string) (*model.Answer, error) {
+	return r.GetByIDTx(ctx, q, id)
+}
+
+func (r *AnswerRepository) GetByIDTx(ctx context.Context, q Querier, id string) (*model.Answer, error) {
 	var a model.Answer
-	err := r.pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, question_id, depth, COALESCE(user_prompt, ''), ai_response, upvotes, created_at
 		 FROM answers WHERE id = $1`,
 		id,
 	).Scan(&a.ID, &a.QuestionID, &a.Depth, &a.UserPrompt, &a.AIResponse, &a.Upvotes, &a.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get answer: %w", err)
 	}
 	return &a, nil
-}
-
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

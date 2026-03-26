@@ -16,6 +16,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"golang.org/x/time/rate"
 
 	"github.com/halva2251/stackunderflow/internal/ai"
 	"github.com/halva2251/stackunderflow/internal/config"
@@ -55,6 +56,12 @@ func main() {
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
+	r.Use(middleware.RequestSizeLimit(1 << 20))
+	r.Use(middleware.SecurityHeaders())
+
+	// General rate limiter: 10 req/s with burst of 100
+	generalLimiter := middleware.NewRateLimiter(rate.Limit(10), 100)
+	r.Use(generalLimiter.Limit)
 
 	r.Get("/health", handler.Health(pool))
 
@@ -69,16 +76,19 @@ func main() {
 		slog.Error("failed to create auth service", "error", err)
 		os.Exit(1)
 	}
-	questionSvc := service.NewQuestionService(questionRepo, answerRepo, aiClient)
+	questionSvc := service.NewQuestionService(service.NewTxBeginner(pool), questionRepo, answerRepo, aiClient)
 
 	authHandler := handler.NewAuthHandler(authSvc)
 	questionHandler := handler.NewQuestionHandler(questionSvc)
 
+	// Stricter rate limiter for auth endpoints: 1 req per 10 sec
+	authLimiter := middleware.NewRateLimiter(rate.Limit(0.1), 1)
+
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Public routes
-		r.Post("/auth/register", authHandler.Register)
-		r.Post("/auth/login", authHandler.Login)
+		// Public routes with strict rate limiting
+		r.With(authLimiter.Limit).Post("/auth/register", authHandler.Register)
+		r.With(authLimiter.Limit).Post("/auth/login", authHandler.Login)
 		r.Get("/questions/{id}", questionHandler.Get)
 
 		// Protected routes
@@ -90,11 +100,12 @@ func main() {
 	})
 
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      r,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 45 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:           fmt.Sprintf(":%d", cfg.Port),
+		Handler:        r,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   45 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 
 	// Graceful shutdown

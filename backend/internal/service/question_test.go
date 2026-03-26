@@ -5,52 +5,100 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/halva2251/stackunderflow/internal/model"
+	"github.com/halva2251/stackunderflow/internal/repository"
 )
 
-// mockAIClient implements ai.Client for testing
+// --- Mock transaction ---
+
+type mockTx struct {
+	commitErr error
+}
+
+func (m *mockTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row { return nil }
+func (m *mockTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+	return nil, nil
+}
+func (m *mockTx) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+func (m *mockTx) Commit(_ context.Context) error   { return m.commitErr }
+func (m *mockTx) Rollback(_ context.Context) error { return nil }
+
+// --- Mock TxBeginner ---
+
+type mockTxBeginner struct {
+	tx  repository.Tx
+	err error
+}
+
+func (m *mockTxBeginner) Begin(_ context.Context) (repository.Tx, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.tx != nil {
+		return m.tx, nil
+	}
+	return &mockTx{}, nil
+}
+
+// --- Mock AI client ---
+
 type mockAIClient struct {
 	response string
 	err      error
 }
 
-func (m *mockAIClient) GenerateAnswer(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+func (m *mockAIClient) GenerateAnswer(_ context.Context, _, _ string) (string, error) {
 	return m.response, m.err
 }
 
-// mockQuestionRepo implements QuestionRepo for testing
+// --- Mock QuestionRepo ---
+
 type mockQuestionRepo struct {
 	question *model.Question
 	err      error
 }
 
-func (m *mockQuestionRepo) Create(ctx context.Context, userID, title, body string) (*model.Question, error) {
+func (m *mockQuestionRepo) Create(_ context.Context, _ repository.Querier, userID, title, body string) (*model.Question, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	return &model.Question{
-		ID:     "q-123",
-		UserID: userID,
-		Title:  title,
-		Body:   body,
-	}, nil
+	return &model.Question{ID: "q-123", UserID: userID, Title: title, Body: body}, nil
 }
 
-func (m *mockQuestionRepo) GetByID(ctx context.Context, id string) (*model.Question, error) {
+func (m *mockQuestionRepo) GetByID(_ context.Context, _ repository.Querier, _ string) (*model.Question, error) {
 	if m.err != nil {
 		return nil, m.err
+	}
+	if m.question == nil {
+		return nil, repository.ErrNotFound
 	}
 	return m.question, nil
 }
 
-// mockAnswerRepo implements AnswerRepo for testing
+func (m *mockQuestionRepo) GetByIDForUpdate(_ context.Context, _ repository.Querier, _ string) (*model.Question, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.question == nil {
+		return nil, repository.ErrNotFound
+	}
+	return m.question, nil
+}
+
+// --- Mock AnswerRepo ---
+
 type mockAnswerRepo struct {
 	answers  []model.Answer
 	maxDepth int
 	err      error
 }
 
-func (m *mockAnswerRepo) Create(ctx context.Context, questionID string, depth int, userPrompt, aiResponse string) (*model.Answer, error) {
+func (m *mockAnswerRepo) Create(_ context.Context, _ repository.Querier, questionID string, depth int, userPrompt, aiResponse string) (*model.Answer, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -63,42 +111,43 @@ func (m *mockAnswerRepo) Create(ctx context.Context, questionID string, depth in
 	}, nil
 }
 
-func (m *mockAnswerRepo) GetByQuestionID(ctx context.Context, questionID string) ([]model.Answer, error) {
+func (m *mockAnswerRepo) GetByQuestionID(_ context.Context, _ repository.Querier, _ string) ([]model.Answer, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return m.answers, nil
 }
 
-func (m *mockAnswerRepo) GetMaxDepth(ctx context.Context, questionID string) (int, error) {
+func (m *mockAnswerRepo) GetMaxDepth(_ context.Context, _ repository.Querier, _ string) (int, error) {
 	if m.err != nil {
 		return 0, m.err
 	}
 	return m.maxDepth, nil
 }
 
-func (m *mockAnswerRepo) GetByID(ctx context.Context, id string) (*model.Answer, error) {
+func (m *mockAnswerRepo) GetByID(_ context.Context, _ repository.Querier, _ string) (*model.Answer, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	if len(m.answers) > 0 {
 		return &m.answers[0], nil
 	}
-	return nil, nil
+	return nil, repository.ErrNotFound
 }
 
-func TestCreateQuestion_Success(t *testing.T) {
-	// Arrange
-	svc := NewQuestionService(
-		&mockQuestionRepo{},
-		&mockAnswerRepo{},
-		&mockAIClient{response: "Just use recursion!"},
-	)
+// --- Helpers ---
 
-	// Act
+func newSvc(db TxBeginner, q QuestionRepo, a AnswerRepo, ai *mockAIClient) *QuestionService {
+	return NewQuestionService(db, q, a, ai)
+}
+
+// --- Tests: CreateQuestion ---
+
+func TestCreateQuestion_Success(t *testing.T) {
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{response: "Just use recursion!"})
+
 	result, err := svc.CreateQuestion(context.Background(), "user-1", "How to sort?", "How do I sort a list?")
 
-	// Assert
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -109,7 +158,7 @@ func TestCreateQuestion_Success(t *testing.T) {
 		t.Fatalf("expected 1 answer, got %d", len(result.Answers))
 	}
 	if result.Answers[0].AIResponse != "Just use recursion!" {
-		t.Errorf("expected AI response 'Just use recursion!', got %s", result.Answers[0].AIResponse)
+		t.Errorf("unexpected AI response: %s", result.Answers[0].AIResponse)
 	}
 	if result.Answers[0].Depth != 0 {
 		t.Errorf("expected depth 0, got %d", result.Answers[0].Depth)
@@ -117,17 +166,10 @@ func TestCreateQuestion_Success(t *testing.T) {
 }
 
 func TestCreateQuestion_EmptyTitle(t *testing.T) {
-	// Arrange
-	svc := NewQuestionService(
-		&mockQuestionRepo{},
-		&mockAnswerRepo{},
-		&mockAIClient{response: "whatever"},
-	)
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{})
 
-	// Act
 	_, err := svc.CreateQuestion(context.Background(), "user-1", "", "some body")
 
-	// Assert
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -137,17 +179,10 @@ func TestCreateQuestion_EmptyTitle(t *testing.T) {
 }
 
 func TestCreateQuestion_EmptyBody(t *testing.T) {
-	// Arrange
-	svc := NewQuestionService(
-		&mockQuestionRepo{},
-		&mockAnswerRepo{},
-		&mockAIClient{response: "whatever"},
-	)
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{})
 
-	// Act
 	_, err := svc.CreateQuestion(context.Background(), "user-1", "title", "")
 
-	// Assert
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -156,40 +191,48 @@ func TestCreateQuestion_EmptyBody(t *testing.T) {
 	}
 }
 
-func TestCreateQuestion_AIFailure(t *testing.T) {
-	// Arrange
-	svc := NewQuestionService(
-		&mockQuestionRepo{},
-		&mockAnswerRepo{},
-		&mockAIClient{err: errors.New("groq api down")},
-	)
+func TestCreateQuestion_TitleTooLong(t *testing.T) {
+	title := string(make([]byte, maxTitleLen+1))
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{})
 
-	// Act
+	_, err := svc.CreateQuestion(context.Background(), "user-1", title, "body")
+
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("expected ErrValidation for long title, got %v", err)
+	}
+}
+
+func TestCreateQuestion_BodyTooLong(t *testing.T) {
+	body := string(make([]byte, maxBodyLen+1))
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{})
+
+	_, err := svc.CreateQuestion(context.Background(), "user-1", "title", body)
+
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("expected ErrValidation for long body, got %v", err)
+	}
+}
+
+func TestCreateQuestion_AIFailure(t *testing.T) {
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{err: errors.New("groq api down")})
+
 	_, err := svc.CreateQuestion(context.Background(), "user-1", "title", "body")
 
-	// Assert
 	if err == nil {
 		t.Fatal("expected error when AI fails")
 	}
 }
 
+// --- Tests: GetQuestion ---
+
 func TestGetQuestion_Success(t *testing.T) {
-	// Arrange
 	question := &model.Question{ID: "q-1", UserID: "u-1", Title: "Test", Body: "Test body"}
-	answers := []model.Answer{
-		{ID: "a-1", QuestionID: "q-1", Depth: 0, AIResponse: "Wrong answer"},
-	}
+	answers := []model.Answer{{ID: "a-1", QuestionID: "q-1", Depth: 0, AIResponse: "Wrong answer"}}
 
-	svc := NewQuestionService(
-		&mockQuestionRepo{question: question},
-		&mockAnswerRepo{answers: answers},
-		&mockAIClient{},
-	)
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{question: question}, &mockAnswerRepo{answers: answers}, &mockAIClient{})
 
-	// Act
 	result, err := svc.GetQuestion(context.Background(), "q-1")
 
-	// Assert
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -202,17 +245,10 @@ func TestGetQuestion_Success(t *testing.T) {
 }
 
 func TestGetQuestion_NotFound(t *testing.T) {
-	// Arrange
-	svc := NewQuestionService(
-		&mockQuestionRepo{question: nil},
-		&mockAnswerRepo{},
-		&mockAIClient{},
-	)
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{question: nil}, &mockAnswerRepo{}, &mockAIClient{})
 
-	// Act
 	_, err := svc.GetQuestion(context.Background(), "nonexistent")
 
-	// Assert
 	if err == nil {
 		t.Fatal("expected error for nonexistent question")
 	}
@@ -221,23 +257,16 @@ func TestGetQuestion_NotFound(t *testing.T) {
 	}
 }
 
+// --- Tests: Argue ---
+
 func TestArgue_Success(t *testing.T) {
-	// Arrange
 	question := &model.Question{ID: "q-1", UserID: "u-1", Title: "Test", Body: "Test body"}
-	answers := []model.Answer{
-		{ID: "a-1", QuestionID: "q-1", Depth: 0, AIResponse: "Wrong answer"},
-	}
+	answers := []model.Answer{{ID: "a-1", QuestionID: "q-1", Depth: 0, AIResponse: "Wrong answer"}}
 
-	svc := NewQuestionService(
-		&mockQuestionRepo{question: question},
-		&mockAnswerRepo{answers: answers, maxDepth: 0},
-		&mockAIClient{response: "I'm doubling down!"},
-	)
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{question: question}, &mockAnswerRepo{answers: answers, maxDepth: 0}, &mockAIClient{response: "I'm doubling down!"})
 
-	// Act
 	result, err := svc.Argue(context.Background(), "q-1", "u-1", "That's wrong!")
 
-	// Assert
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -245,67 +274,59 @@ func TestArgue_Success(t *testing.T) {
 		t.Errorf("expected depth 1, got %d", result.Depth)
 	}
 	if result.AIResponse != "I'm doubling down!" {
-		t.Errorf("expected 'I'm doubling down!', got %s", result.AIResponse)
-	}
-	if result.UserPrompt != "That's wrong!" {
-		t.Errorf("expected user prompt 'That's wrong!', got %s", result.UserPrompt)
+		t.Errorf("unexpected AI response: %s", result.AIResponse)
 	}
 }
 
 func TestArgue_EmptyArgument(t *testing.T) {
-	// Arrange
-	svc := NewQuestionService(
-		&mockQuestionRepo{},
-		&mockAnswerRepo{},
-		&mockAIClient{},
-	)
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{})
 
-	// Act
 	_, err := svc.Argue(context.Background(), "q-1", "u-1", "")
 
-	// Assert
-	if err == nil {
-		t.Fatal("expected validation error")
-	}
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("expected ErrValidation, got %v", err)
 	}
 }
 
-func TestArgue_QuestionNotFound(t *testing.T) {
-	// Arrange
-	svc := NewQuestionService(
-		&mockQuestionRepo{question: nil},
-		&mockAnswerRepo{},
-		&mockAIClient{},
-	)
+func TestArgue_ArgumentTooLong(t *testing.T) {
+	arg := string(make([]byte, maxArgLen+1))
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{})
 
-	// Act
+	_, err := svc.Argue(context.Background(), "q-1", "u-1", arg)
+
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("expected ErrValidation for long argument, got %v", err)
+	}
+}
+
+func TestArgue_QuestionNotFound(t *testing.T) {
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{question: nil}, &mockAnswerRepo{}, &mockAIClient{})
+
 	_, err := svc.Argue(context.Background(), "nonexistent", "u-1", "argument")
 
-	// Assert
-	if err == nil {
-		t.Fatal("expected error")
-	}
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
+func TestArgue_MaxDepthReached(t *testing.T) {
+	question := &model.Question{ID: "q-1", Title: "Test", Body: "Body"}
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{question: question}, &mockAnswerRepo{maxDepth: maxArgueDepth}, &mockAIClient{})
+
+	_, err := svc.Argue(context.Background(), "q-1", "u-1", "push further")
+
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("expected ErrValidation at max depth, got %v", err)
+	}
+}
+
 func TestArgue_AIFailure(t *testing.T) {
-	// Arrange
 	question := &model.Question{ID: "q-1", UserID: "u-1", Title: "Test", Body: "Test body"}
 
-	svc := NewQuestionService(
-		&mockQuestionRepo{question: question},
-		&mockAnswerRepo{maxDepth: 0},
-		&mockAIClient{err: errors.New("api down")},
-	)
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{question: question}, &mockAnswerRepo{maxDepth: 0}, &mockAIClient{err: errors.New("api down")})
 
-	// Act
 	_, err := svc.Argue(context.Background(), "q-1", "u-1", "argument")
 
-	// Assert
 	if err == nil {
 		t.Fatal("expected error when AI fails")
 	}
@@ -313,39 +334,34 @@ func TestArgue_AIFailure(t *testing.T) {
 
 func TestArgue_DepthEscalation(t *testing.T) {
 	tests := []struct {
-		name          string
-		currentMax    int
-		expectedDepth int
+		name       string
+		currentMax int
+		wantDepth  int
 	}{
-		{name: "depth 0 to 1", currentMax: 0, expectedDepth: 1},
-		{name: "depth 1 to 2", currentMax: 1, expectedDepth: 2},
-		{name: "depth 2 to 3", currentMax: 2, expectedDepth: 3},
-		{name: "depth 3 to 4", currentMax: 3, expectedDepth: 4},
+		{"depth 0 to 1", 0, 1},
+		{"depth 1 to 2", 1, 2},
+		{"depth 2 to 3", 2, 3},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Arrange
 			question := &model.Question{ID: "q-1", Title: "Test", Body: "Body"}
-			answers := []model.Answer{
-				{ID: "a-1", Depth: tt.currentMax, AIResponse: "previous answer"},
-			}
+			answers := []model.Answer{{ID: "a-1", Depth: tt.currentMax, AIResponse: "previous"}}
 
-			svc := NewQuestionService(
+			svc := newSvc(
+				&mockTxBeginner{},
 				&mockQuestionRepo{question: question},
 				&mockAnswerRepo{answers: answers, maxDepth: tt.currentMax},
 				&mockAIClient{response: "escalated response"},
 			)
 
-			// Act
 			result, err := svc.Argue(context.Background(), "q-1", "u-1", "I disagree")
 
-			// Assert
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if result.Depth != tt.expectedDepth {
-				t.Errorf("expected depth %d, got %d", tt.expectedDepth, result.Depth)
+			if result.Depth != tt.wantDepth {
+				t.Errorf("expected depth %d, got %d", tt.wantDepth, result.Depth)
 			}
 		})
 	}

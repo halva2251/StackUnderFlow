@@ -8,7 +8,7 @@ import (
 
 type Config struct {
 	Port        int    `env:"PORT"         envDefault:"8080"`
-	DatabaseURL string `env:"DATABASE_URL" envDefault:"postgres://postgres:postgres@localhost:5432/stackunderflow?sslmode=disable"`
+	DatabaseURL string `env:"DATABASE_URL" envDefault:"postgres://postgres:postgres@localhost:5432/stackunderflow?sslmode=require"`
 
 	GroqAPIKey  string `env:"GROQ_API_KEY,required"`
 	GroqBaseURL string `env:"GROQ_BASE_URL" envDefault:"https://api.groq.com/openai/v1"`

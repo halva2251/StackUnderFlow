@@ -12,16 +12,20 @@ import (
 )
 
 type UserRepository struct {
-	pool *pgxpool.Pool
+	*Repository
 }
 
 func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
-	return &UserRepository{pool: pool}
+	return &UserRepository{Repository: NewRepository(pool)}
 }
 
 func (r *UserRepository) Create(ctx context.Context, provider, providerID, username, email, passwordHash string) (*model.User, error) {
+	return r.CreateTx(ctx, r.pool, provider, providerID, username, email, passwordHash)
+}
+
+func (r *UserRepository) CreateTx(ctx context.Context, q Querier, provider, providerID, username, email, passwordHash string) (*model.User, error) {
 	var u model.User
-	err := r.pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`INSERT INTO users (provider, provider_id, username, email, password_hash)
 		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING id, provider, provider_id, username, COALESCE(email, ''), COALESCE(avatar_url, ''), created_at`,
@@ -34,15 +38,19 @@ func (r *UserRepository) Create(ctx context.Context, provider, providerID, usern
 }
 
 func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*model.User, error) {
+	return r.GetByUsernameTx(ctx, r.pool, username)
+}
+
+func (r *UserRepository) GetByUsernameTx(ctx context.Context, q Querier, username string) (*model.User, error) {
 	var u model.User
-	err := r.pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, provider, provider_id, username, COALESCE(email, ''), COALESCE(avatar_url, ''), COALESCE(password_hash, ''), created_at
 		 FROM users WHERE username = $1 AND provider = 'local'`,
 		username,
 	).Scan(&u.ID, &u.Provider, &u.ProviderID, &u.Username, &u.Email, &u.AvatarURL, &u.PasswordHash, &u.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get user by username: %w", err)
 	}
@@ -50,15 +58,19 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*m
 }
 
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*model.User, error) {
+	return r.GetByIDTx(ctx, r.pool, id)
+}
+
+func (r *UserRepository) GetByIDTx(ctx context.Context, q Querier, id string) (*model.User, error) {
 	var u model.User
-	err := r.pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT id, provider, provider_id, username, COALESCE(email, ''), COALESCE(avatar_url, ''), created_at
 		 FROM users WHERE id = $1`,
 		id,
 	).Scan(&u.ID, &u.Provider, &u.ProviderID, &u.Username, &u.Email, &u.AvatarURL, &u.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get user by id: %w", err)
 	}
@@ -67,8 +79,13 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (*model.User, e
 
 // UpsertByProvider creates or updates a user from an OAuth provider.
 func (r *UserRepository) UpsertByProvider(ctx context.Context, provider, providerID, username, avatarURL string) (*model.User, error) {
+	return r.UpsertByProviderTx(ctx, r.pool, provider, providerID, username, avatarURL)
+}
+
+// UpsertByProviderTx creates or updates a user from an OAuth provider within a transaction.
+func (r *UserRepository) UpsertByProviderTx(ctx context.Context, q Querier, provider, providerID, username, avatarURL string) (*model.User, error) {
 	var u model.User
-	err := r.pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`INSERT INTO users (provider, provider_id, username, avatar_url)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (provider, provider_id) DO UPDATE

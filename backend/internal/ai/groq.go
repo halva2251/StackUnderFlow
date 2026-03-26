@@ -85,7 +85,13 @@ func (c *GroqClient) GenerateAnswer(ctx context.Context, systemPrompt, userPromp
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("groq api error (status %d): %s", resp.StatusCode, string(respBody))
+		var errResp struct {
+			Error *apiError `json:"error"`
+		}
+		if jsonErr := json.Unmarshal(respBody, &errResp); jsonErr == nil && errResp.Error != nil {
+			return "", fmt.Errorf("groq api error (status %d): type=%s message=%s", resp.StatusCode, errResp.Error.Type, errResp.Error.Message)
+		}
+		return "", fmt.Errorf("groq api error (status %d): unexpected error response", resp.StatusCode)
 	}
 
 	var chatResp chatResponse

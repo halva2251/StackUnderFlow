@@ -13,39 +13,67 @@ import (
 )
 
 type QuestionRepository struct {
-	pool *pgxpool.Pool
+	*Repository
 }
 
 func NewQuestionRepository(pool *pgxpool.Pool) *QuestionRepository {
-	return &QuestionRepository{pool: pool}
+	return &QuestionRepository{Repository: NewRepository(pool)}
 }
 
-func (r *QuestionRepository) Create(ctx context.Context, userID, title, body string) (*model.Question, error) {
-	var q model.Question
-	err := r.pool.QueryRow(ctx,
+// Create creates a new question using the provided Querier (transaction or pool).
+func (r *QuestionRepository) Create(ctx context.Context, q Querier, userID, title, body string) (*model.Question, error) {
+	return r.CreateTx(ctx, q, userID, title, body)
+}
+
+func (r *QuestionRepository) CreateTx(ctx context.Context, q Querier, userID, title, body string) (*model.Question, error) {
+	var question model.Question
+	err := q.QueryRow(ctx,
 		`INSERT INTO questions (user_id, title, body)
 		 VALUES ($1, $2, $3)
 		 RETURNING id, user_id, title, body, created_at`,
 		userID, title, body,
-	).Scan(&q.ID, &q.UserID, &q.Title, &q.Body, &q.CreatedAt)
+	).Scan(&question.ID, &question.UserID, &question.Title, &question.Body, &question.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create question: %w", err)
 	}
-	return &q, nil
+	return &question, nil
 }
 
-func (r *QuestionRepository) GetByID(ctx context.Context, id string) (*model.Question, error) {
-	var q model.Question
-	err := r.pool.QueryRow(ctx,
+// GetByID retrieves a question by ID using the provided Querier (transaction or pool).
+func (r *QuestionRepository) GetByID(ctx context.Context, q Querier, id string) (*model.Question, error) {
+	return r.GetByIDTx(ctx, q, id)
+}
+
+// GetByIDForUpdate retrieves a question by ID with a row-level lock (SELECT ... FOR UPDATE).
+// Must be called within an active transaction.
+func (r *QuestionRepository) GetByIDForUpdate(ctx context.Context, q Querier, id string) (*model.Question, error) {
+	var question model.Question
+	err := q.QueryRow(ctx,
+		`SELECT id, user_id, title, body, created_at
+		 FROM questions WHERE id = $1 FOR UPDATE`,
+		id,
+	).Scan(&question.ID, &question.UserID, &question.Title, &question.Body, &question.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get question for update: %w", err)
+	}
+	return &question, nil
+}
+
+func (r *QuestionRepository) GetByIDTx(ctx context.Context, q Querier, id string) (*model.Question, error) {
+	var question model.Question
+	err := q.QueryRow(ctx,
 		`SELECT id, user_id, title, body, created_at
 		 FROM questions WHERE id = $1`,
 		id,
-	).Scan(&q.ID, &q.UserID, &q.Title, &q.Body, &q.CreatedAt)
+	).Scan(&question.ID, &question.UserID, &question.Title, &question.Body, &question.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get question: %w", err)
 	}
-	return &q, nil
+	return &question, nil
 }
