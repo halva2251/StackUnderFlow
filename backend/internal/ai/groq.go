@@ -89,9 +89,11 @@ func (c *GroqClient) GenerateAnswer(ctx context.Context, systemPrompt, userPromp
 			Error *apiError `json:"error"`
 		}
 		if jsonErr := json.Unmarshal(respBody, &errResp); jsonErr == nil && errResp.Error != nil {
-			return "", fmt.Errorf("groq api error (status %d): type=%s message=%s", resp.StatusCode, errResp.Error.Type, errResp.Error.Message)
+			// Return only the error message — do not include the error type as it may hint
+			// at API key type or quota details.
+			return "", fmt.Errorf("groq api error (status %d): %s", resp.StatusCode, errResp.Error.Message)
 		}
-		return "", fmt.Errorf("groq api error (status %d): unexpected error response", resp.StatusCode)
+		return "", fmt.Errorf("groq api error (status %d)", resp.StatusCode)
 	}
 
 	var chatResp chatResponse

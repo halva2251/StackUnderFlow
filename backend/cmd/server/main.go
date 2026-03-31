@@ -60,7 +60,11 @@ func main() {
 	r.Use(middleware.SecurityHeaders())
 
 	// General rate limiter: 10 req/s with burst of 100
-	generalLimiter := middleware.NewRateLimiter(rate.Limit(10), 100)
+	// Trusted proxies: Docker bridge network (172.20.0.0/16) and localhost.
+	// X-Real-IP / X-Forwarded-For headers are only trusted from these sources.
+	// This prevents spoofing if the API port is accidentally exposed directly.
+	generalLimiter := middleware.NewRateLimiter(rate.Limit(10), 100, []string{"127.0.0.0/8", "172.20.0.0/16"})
+	defer generalLimiter.Stop()
 	r.Use(generalLimiter.Limit)
 
 	r.Get("/health", handler.Health(pool))
@@ -85,7 +89,8 @@ func main() {
 	voteHandler := handler.NewVoteHandler(voteSvc)
 
 	// Stricter rate limiter for auth endpoints: 1 req per 10 sec
-	authLimiter := middleware.NewRateLimiter(rate.Limit(0.1), 1)
+	authLimiter := middleware.NewRateLimiter(rate.Limit(0.1), 1, []string{"127.0.0.0/8", "172.20.0.0/16"})
+	defer authLimiter.Stop()
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
