@@ -57,7 +57,7 @@ type QuestionRepo interface {
 
 // AnswerRepo defines the data access the service needs for answers.
 type AnswerRepo interface {
-	Create(ctx context.Context, q repository.Querier, questionID string, depth int, userPrompt, aiResponse string) (*model.Answer, error)
+	Create(ctx context.Context, q repository.Querier, questionID, userID string, depth int, userPrompt, aiResponse string) (*model.Answer, error)
 	GetByQuestionID(ctx context.Context, q repository.Querier, questionID string) ([]model.Answer, error)
 	GetMaxDepth(ctx context.Context, q repository.Querier, questionID string) (int, error)
 	GetByID(ctx context.Context, q repository.Querier, id string) (*model.Answer, error)
@@ -113,7 +113,7 @@ func (s *QuestionService) CreateQuestion(ctx context.Context, userID, title, bod
 		return nil, fmt.Errorf("create question: %w", err)
 	}
 
-	answer, err := s.answers.Create(ctx, tx, question.ID, 0, "", aiResponse)
+	answer, err := s.answers.Create(ctx, tx, question.ID, "", 0, "", aiResponse)
 	if err != nil {
 		return nil, fmt.Errorf("save answer: %w", err)
 	}
@@ -232,7 +232,7 @@ func (s *QuestionService) Argue(ctx context.Context, questionID, userID, argumen
 	}
 	defer repository.RollbackTx(ctx, writeTx)
 
-	answer, err := s.answers.Create(ctx, writeTx, questionID, nextDepth, argument, aiResponse)
+	answer, err := s.answers.Create(ctx, writeTx, questionID, userID, nextDepth, argument, aiResponse)
 	if err != nil {
 		return nil, fmt.Errorf("save answer: %w", err)
 	}

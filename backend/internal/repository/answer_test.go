@@ -55,7 +55,7 @@ func TestAnswerRepository_Create_Success(t *testing.T) {
 	aiResponse := "Here is the solution..."
 
 	// Act
-	answer, err := answerRepo.Create(ctx, tx, question.ID, 0, userPrompt, aiResponse)
+	answer, err := answerRepo.Create(ctx, tx, question.ID, "", 0, userPrompt, aiResponse)
 
 	// Assert
 	if err != nil {
@@ -110,7 +110,7 @@ func TestAnswerRepository_Create_ForeignKeyViolation(t *testing.T) {
 	defer tx.Rollback(ctx)
 
 	// Act - Try to create answer with non-existent question
-	_, err = answerRepo.Create(ctx, tx, "00000000-0000-0000-0000-000000000000", 0, "Prompt", "Response")
+	_, err = answerRepo.Create(ctx, tx, "00000000-0000-0000-0000-000000000000", "", 0, "Prompt", "Response")
 
 	// Assert
 	if err == nil {
@@ -156,12 +156,12 @@ func TestAnswerRepository_GetByQuestionID_Success(t *testing.T) {
 		t.Fatalf("failed to begin transaction: %v", err)
 	}
 
-	answer1, err := answerRepo.Create(ctx, tx, question.ID, 0, "First prompt", "First response")
+	answer1, err := answerRepo.Create(ctx, tx, question.ID, "", 0, "First prompt", "First response")
 	if err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("failed to create first answer: %v", err)
 	}
-	answer2, err := answerRepo.Create(ctx, tx, question.ID, 1, "Second prompt", "Second response")
+	answer2, err := answerRepo.Create(ctx, tx, question.ID, "", 1, "Second prompt", "Second response")
 	if err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("failed to create second answer: %v", err)
@@ -245,17 +245,17 @@ func TestAnswerRepository_GetByQuestionID_Ordering(t *testing.T) {
 		t.Fatalf("failed to begin transaction: %v", err)
 	}
 
-	answerDepth2, err := answerRepo.Create(ctx, tx, question.ID, 2, "Depth 2 prompt", "Depth 2 response")
+	answerDepth2, err := answerRepo.Create(ctx, tx, question.ID, "", 2, "Depth 2 prompt", "Depth 2 response")
 	if err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("failed to create depth 2 answer: %v", err)
 	}
-	answerDepth0, err := answerRepo.Create(ctx, tx, question.ID, 0, "Depth 0 prompt", "Depth 0 response")
+	answerDepth0, err := answerRepo.Create(ctx, tx, question.ID, "", 0, "Depth 0 prompt", "Depth 0 response")
 	if err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("failed to create depth 0 answer: %v", err)
 	}
-	answerDepth1, err := answerRepo.Create(ctx, tx, question.ID, 1, "Depth 1 prompt", "Depth 1 response")
+	answerDepth1, err := answerRepo.Create(ctx, tx, question.ID, "", 1, "Depth 1 prompt", "Depth 1 response")
 	if err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("failed to create depth 1 answer: %v", err)
@@ -392,17 +392,17 @@ func TestAnswerRepository_GetMaxDepth_WithAnswers(t *testing.T) {
 		t.Fatalf("failed to begin transaction: %v", err)
 	}
 
-	_, err = answerRepo.Create(ctx, tx, question.ID, 0, "Depth 0", "Response 0")
+	_, err = answerRepo.Create(ctx, tx, question.ID, "", 0, "Depth 0", "Response 0")
 	if err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("failed to create depth 0 answer: %v", err)
 	}
-	_, err = answerRepo.Create(ctx, tx, question.ID, 2, "Depth 2", "Response 2")
+	_, err = answerRepo.Create(ctx, tx, question.ID, "", 2, "Depth 2", "Response 2")
 	if err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("failed to create depth 2 answer: %v", err)
 	}
-	_, err = answerRepo.Create(ctx, tx, question.ID, 1, "Depth 1", "Response 1")
+	_, err = answerRepo.Create(ctx, tx, question.ID, "", 1, "Depth 1", "Response 1")
 	if err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("failed to create depth 1 answer: %v", err)
@@ -526,7 +526,7 @@ func TestAnswerRepository_GetByID_Success(t *testing.T) {
 		t.Fatalf("failed to begin transaction: %v", err)
 	}
 
-	created, err := answerRepo.Create(ctx, tx, question.ID, 0, "Test prompt", "Test response")
+	created, err := answerRepo.Create(ctx, tx, question.ID, "", 0, "Test prompt", "Test response")
 	if err != nil {
 		tx.Rollback(ctx)
 		t.Fatalf("failed to create answer: %v", err)

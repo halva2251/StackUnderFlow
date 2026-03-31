@@ -98,13 +98,14 @@ type mockAnswerRepo struct {
 	err      error
 }
 
-func (m *mockAnswerRepo) Create(_ context.Context, _ repository.Querier, questionID string, depth int, userPrompt, aiResponse string) (*model.Answer, error) {
+func (m *mockAnswerRepo) Create(_ context.Context, _ repository.Querier, questionID, userID string, depth int, userPrompt, aiResponse string) (*model.Answer, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return &model.Answer{
 		ID:         "a-123",
 		QuestionID: questionID,
+		UserID:     userID,
 		Depth:      depth,
 		UserPrompt: userPrompt,
 		AIResponse: aiResponse,
