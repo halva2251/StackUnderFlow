@@ -18,7 +18,9 @@ type mockTx struct {
 	commitErr error
 }
 
-func (m *mockTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row { return nil }
+func (m *mockTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+	return errRow{err: pgx.ErrNoRows}
+}
 func (m *mockTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
 	return nil, nil
 }

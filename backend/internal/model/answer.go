@@ -10,5 +10,6 @@ type Answer struct {
 	UserPrompt string    `json:"user_prompt,omitempty"`
 	AIResponse string    `json:"ai_response"`
 	Upvotes    int       `json:"upvotes"`
+	Downvotes  int       `json:"downvotes"`
 	CreatedAt  time.Time `json:"created_at"`
 }

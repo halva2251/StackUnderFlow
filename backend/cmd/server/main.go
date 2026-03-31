@@ -77,9 +77,12 @@ func main() {
 		os.Exit(1)
 	}
 	questionSvc := service.NewQuestionService(service.NewTxBeginner(pool), questionRepo, answerRepo, aiClient)
+	voteRepo := repository.NewVoteRepository(pool)
+	voteSvc := service.NewVoteService(service.NewTxBeginner(pool), voteRepo)
 
 	authHandler := handler.NewAuthHandler(authSvc)
 	questionHandler := handler.NewQuestionHandler(questionSvc)
+	voteHandler := handler.NewVoteHandler(voteSvc)
 
 	// Stricter rate limiter for auth endpoints: 1 req per 10 sec
 	authLimiter := middleware.NewRateLimiter(rate.Limit(0.1), 1)
@@ -96,6 +99,11 @@ func main() {
 			r.Use(middleware.Auth(authSvc))
 			r.Post("/questions", questionHandler.Create)
 			r.Post("/questions/{id}/argue", questionHandler.Argue)
+
+			r.Put("/questions/{id}/vote", voteHandler.VoteOn("question"))
+			r.Delete("/questions/{id}/vote", voteHandler.RemoveVoteOn("question"))
+			r.Put("/answers/{id}/vote", voteHandler.VoteOn("answer"))
+			r.Delete("/answers/{id}/vote", voteHandler.RemoveVoteOn("answer"))
 		})
 	})
 

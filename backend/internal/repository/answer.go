@@ -27,9 +27,9 @@ func (r *AnswerRepository) Create(ctx context.Context, q Querier, questionID, us
 	err := q.QueryRow(ctx,
 		`INSERT INTO answers (question_id, user_id, depth, user_prompt, ai_response)
 		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, question_id, COALESCE(user_id::text, ''), depth, COALESCE(user_prompt, ''), ai_response, upvotes, created_at`,
+		 RETURNING id, question_id, COALESCE(user_id::text, ''), depth, COALESCE(user_prompt, ''), ai_response, upvotes, downvotes, created_at`,
 		questionID, nilIfEmpty(userID), depth, nilIfEmpty(userPrompt), aiResponse,
-	).Scan(&a.ID, &a.QuestionID, &a.UserID, &a.Depth, &a.UserPrompt, &a.AIResponse, &a.Upvotes, &a.CreatedAt)
+	).Scan(&a.ID, &a.QuestionID, &a.UserID, &a.Depth, &a.UserPrompt, &a.AIResponse, &a.Upvotes, &a.Downvotes, &a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create answer: %w", err)
 	}
@@ -43,7 +43,7 @@ func (r *AnswerRepository) GetByQuestionID(ctx context.Context, q Querier, quest
 
 func (r *AnswerRepository) GetByQuestionIDTx(ctx context.Context, q Querier, questionID string) ([]model.Answer, error) {
 	rows, err := q.Query(ctx,
-		`SELECT id, question_id, COALESCE(user_id::text, ''), depth, COALESCE(user_prompt, ''), ai_response, upvotes, created_at
+		`SELECT id, question_id, COALESCE(user_id::text, ''), depth, COALESCE(user_prompt, ''), ai_response, upvotes, downvotes, created_at
 		 FROM answers WHERE question_id = $1
 		 ORDER BY depth ASC`,
 		questionID,
@@ -56,7 +56,7 @@ func (r *AnswerRepository) GetByQuestionIDTx(ctx context.Context, q Querier, que
 	answers := make([]model.Answer, 0)
 	for rows.Next() {
 		var a model.Answer
-		if err := rows.Scan(&a.ID, &a.QuestionID, &a.UserID, &a.Depth, &a.UserPrompt, &a.AIResponse, &a.Upvotes, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.QuestionID, &a.UserID, &a.Depth, &a.UserPrompt, &a.AIResponse, &a.Upvotes, &a.Downvotes, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan answer: %w", err)
 		}
 		answers = append(answers, a)
@@ -97,10 +97,10 @@ func (r *AnswerRepository) GetByID(ctx context.Context, q Querier, id string) (*
 func (r *AnswerRepository) GetByIDTx(ctx context.Context, q Querier, id string) (*model.Answer, error) {
 	var a model.Answer
 	err := q.QueryRow(ctx,
-		`SELECT id, question_id, COALESCE(user_id::text, ''), depth, COALESCE(user_prompt, ''), ai_response, upvotes, created_at
+		`SELECT id, question_id, COALESCE(user_id::text, ''), depth, COALESCE(user_prompt, ''), ai_response, upvotes, downvotes, created_at
 		 FROM answers WHERE id = $1`,
 		id,
-	).Scan(&a.ID, &a.QuestionID, &a.UserID, &a.Depth, &a.UserPrompt, &a.AIResponse, &a.Upvotes, &a.CreatedAt)
+	).Scan(&a.ID, &a.QuestionID, &a.UserID, &a.Depth, &a.UserPrompt, &a.AIResponse, &a.Upvotes, &a.Downvotes, &a.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound

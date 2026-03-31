@@ -18,3 +18,7 @@ type LoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
+
+type VoteRequest struct {
+	Value int `json:"value"`
+}

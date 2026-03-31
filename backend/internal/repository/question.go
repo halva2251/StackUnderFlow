@@ -30,9 +30,9 @@ func (r *QuestionRepository) CreateTx(ctx context.Context, q Querier, userID, ti
 	err := q.QueryRow(ctx,
 		`INSERT INTO questions (user_id, title, body)
 		 VALUES ($1, $2, $3)
-		 RETURNING id, user_id, title, body, created_at`,
+		 RETURNING id, user_id, title, body, upvotes, downvotes, created_at`,
 		userID, title, body,
-	).Scan(&question.ID, &question.UserID, &question.Title, &question.Body, &question.CreatedAt)
+	).Scan(&question.ID, &question.UserID, &question.Title, &question.Body, &question.Upvotes, &question.Downvotes, &question.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create question: %w", err)
 	}
@@ -49,10 +49,10 @@ func (r *QuestionRepository) GetByID(ctx context.Context, q Querier, id string) 
 func (r *QuestionRepository) GetByIDForUpdate(ctx context.Context, q Querier, id string) (*model.Question, error) {
 	var question model.Question
 	err := q.QueryRow(ctx,
-		`SELECT id, user_id, title, body, created_at
+		`SELECT id, user_id, title, body, upvotes, downvotes, created_at
 		 FROM questions WHERE id = $1 FOR UPDATE`,
 		id,
-	).Scan(&question.ID, &question.UserID, &question.Title, &question.Body, &question.CreatedAt)
+	).Scan(&question.ID, &question.UserID, &question.Title, &question.Body, &question.Upvotes, &question.Downvotes, &question.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -65,10 +65,10 @@ func (r *QuestionRepository) GetByIDForUpdate(ctx context.Context, q Querier, id
 func (r *QuestionRepository) GetByIDTx(ctx context.Context, q Querier, id string) (*model.Question, error) {
 	var question model.Question
 	err := q.QueryRow(ctx,
-		`SELECT id, user_id, title, body, created_at
+		`SELECT id, user_id, title, body, upvotes, downvotes, created_at
 		 FROM questions WHERE id = $1`,
 		id,
-	).Scan(&question.ID, &question.UserID, &question.Title, &question.Body, &question.CreatedAt)
+	).Scan(&question.ID, &question.UserID, &question.Title, &question.Body, &question.Upvotes, &question.Downvotes, &question.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
