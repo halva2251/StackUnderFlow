@@ -77,3 +77,52 @@ func (r *QuestionRepository) GetByIDTx(ctx context.Context, q Querier, id string
 	}
 	return &question, nil
 }
+
+// List retrieves questions sorted by the given order, with pagination.
+func (r *QuestionRepository) List(ctx context.Context, q Querier, sort string, limit, offset int) ([]model.Question, int, error) {
+	// Get total count
+	var total int
+	err := q.QueryRow(ctx, "SELECT COUNT(*) FROM questions").Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count questions: %w", err)
+	}
+
+	// Get paginated questions — sort is already validated at service layer
+	var rows pgx.Rows
+	if sort == "most_upvoted" {
+		rows, err = q.Query(ctx,
+			`SELECT id, user_id, title, body, upvotes, downvotes, created_at
+			 FROM questions
+			 ORDER BY upvotes DESC, created_at DESC
+			 LIMIT $1 OFFSET $2`,
+			limit, offset,
+		)
+	} else {
+		rows, err = q.Query(ctx,
+			`SELECT id, user_id, title, body, upvotes, downvotes, created_at
+			 FROM questions
+			 ORDER BY created_at DESC
+			 LIMIT $1 OFFSET $2`,
+			limit, offset,
+		)
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("list questions: %w", err)
+	}
+	defer rows.Close()
+
+	questions := make([]model.Question, 0)
+	for rows.Next() {
+		var question model.Question
+		if err := rows.Scan(&question.ID, &question.UserID, &question.Title, &question.Body, &question.Upvotes, &question.Downvotes, &question.CreatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan question: %w", err)
+		}
+		questions = append(questions, question)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate questions: %w", err)
+	}
+
+	return questions, total, nil
+}

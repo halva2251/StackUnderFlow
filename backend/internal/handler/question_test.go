@@ -18,10 +18,11 @@ import (
 
 // mockQuestionService implements the questionService interface for testing
 type mockQuestionService struct {
-	createResult *model.QuestionResponse
-	getResult    *model.QuestionResponse
-	argueResult  *model.Answer
-	err          error
+	createResult   *model.QuestionResponse
+	getResult      *model.QuestionResponse
+	listResult     *model.QuestionListResponse
+	argueResult    *model.Answer
+	err            error
 }
 
 func (m *mockQuestionService) CreateQuestion(ctx context.Context, userID, title, body string) (*model.QuestionResponse, error) {
@@ -58,6 +59,25 @@ func (m *mockQuestionService) Argue(ctx context.Context, questionID, userID, arg
 		return m.argueResult, nil
 	}
 	return &model.Answer{ID: "a-456", QuestionID: questionID, Depth: 1, UserPrompt: argument, AIResponse: "Doubling down!"}, nil
+}
+
+func (m *mockQuestionService) ListQuestions(ctx context.Context, sort string, limit, offset int) (*model.QuestionListResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.listResult != nil {
+		return m.listResult, nil
+	}
+	return &model.QuestionListResponse{
+		Questions: []model.Question{
+			{ID: "q-1", Title: "First"},
+			{ID: "q-2", Title: "Second"},
+		},
+		Total:  10,
+		Limit:  limit,
+		Offset: offset,
+		Sort:   sort,
+	}, nil
 }
 
 func withChiParam(req *http.Request, key, value string) *http.Request {
@@ -257,5 +277,55 @@ func TestQuestionHandler_Argue_QuestionNotFound(t *testing.T) {
 	// Assert
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestQuestionHandler_List_Success(t *testing.T) {
+	h := NewQuestionHandler(&mockQuestionService{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/questions?sort=newest&limit=10&offset=0", nil)
+	w := httptest.NewRecorder()
+
+	h.List(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var result model.QuestionListResponse
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if len(result.Questions) != 2 {
+		t.Errorf("expected 2 questions, got %d", len(result.Questions))
+	}
+	if result.Total != 10 {
+		t.Errorf("expected total 10, got %d", result.Total)
+	}
+	if result.Sort != "newest" {
+		t.Errorf("expected sort 'newest', got %s", result.Sort)
+	}
+}
+
+func TestQuestionHandler_List_DefaultSort(t *testing.T) {
+	h := NewQuestionHandler(&mockQuestionService{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/questions", nil)
+	w := httptest.NewRecorder()
+
+	h.List(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestQuestionHandler_List_InternalError(t *testing.T) {
+	h := NewQuestionHandler(&mockQuestionService{err: fmt.Errorf("db error")})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/questions?sort=newest", nil)
+	w := httptest.NewRecorder()
+
+	h.List(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
 	}
 }

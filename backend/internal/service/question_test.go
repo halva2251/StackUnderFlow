@@ -61,8 +61,10 @@ func (m *mockAIClient) GenerateAnswer(_ context.Context, _, _ string) (string, e
 // --- Mock QuestionRepo ---
 
 type mockQuestionRepo struct {
-	question *model.Question
-	err      error
+	question      *model.Question
+	questions     []model.Question
+	listTotal     int
+	err           error
 }
 
 func (m *mockQuestionRepo) Create(_ context.Context, _ repository.Querier, userID, title, body string) (*model.Question, error) {
@@ -90,6 +92,16 @@ func (m *mockQuestionRepo) GetByIDForUpdate(_ context.Context, _ repository.Quer
 		return nil, repository.ErrNotFound
 	}
 	return m.question, nil
+}
+
+func (m *mockQuestionRepo) List(_ context.Context, _ repository.Querier, _ string, _, _ int) ([]model.Question, int, error) {
+	if m.err != nil {
+		return nil, 0, m.err
+	}
+	if m.questions == nil {
+		return []model.Question{}, m.listTotal, nil
+	}
+	return m.questions, m.listTotal, nil
 }
 
 // --- Mock AnswerRepo ---
@@ -367,5 +379,98 @@ func TestArgue_DepthEscalation(t *testing.T) {
 				t.Errorf("expected depth %d, got %d", tt.wantDepth, result.Depth)
 			}
 		})
+	}
+}
+
+// --- Tests: ListQuestions ---
+
+func TestListQuestions_Success(t *testing.T) {
+	questions := []model.Question{
+		{ID: "q-1", Title: "First", Body: "Body 1"},
+		{ID: "q-2", Title: "Second", Body: "Body 2"},
+	}
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{questions: questions, listTotal: 10}, &mockAnswerRepo{}, &mockAIClient{})
+
+	result, err := svc.ListQuestions(context.Background(), "newest", 2, 0)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Questions) != 2 {
+		t.Errorf("expected 2 questions, got %d", len(result.Questions))
+	}
+	if result.Total != 10 {
+		t.Errorf("expected total 10, got %d", result.Total)
+	}
+	if result.Limit != 2 {
+		t.Errorf("expected limit 2, got %d", result.Limit)
+	}
+	if result.Offset != 0 {
+		t.Errorf("expected offset 0, got %d", result.Offset)
+	}
+	if result.Sort != "newest" {
+		t.Errorf("expected sort 'newest', got %s", result.Sort)
+	}
+}
+
+func TestListQuestions_MostUpvoted(t *testing.T) {
+	questions := []model.Question{
+		{ID: "q-1", Title: "Top", Body: "Body", Upvotes: 5},
+	}
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{questions: questions, listTotal: 1}, &mockAnswerRepo{}, &mockAIClient{})
+
+	result, err := svc.ListQuestions(context.Background(), "most_upvoted", 10, 5)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Questions) != 1 {
+		t.Errorf("expected 1 question, got %d", len(result.Questions))
+	}
+	if result.Sort != "most_upvoted" {
+		t.Errorf("expected sort 'most_upvoted', got %s", result.Sort)
+	}
+}
+
+func TestListQuestions_Empty(t *testing.T) {
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{questions: []model.Question{}}, &mockAnswerRepo{}, &mockAIClient{})
+
+	result, err := svc.ListQuestions(context.Background(), "newest", 10, 0)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Questions) != 0 {
+		t.Errorf("expected 0 questions, got %d", len(result.Questions))
+	}
+}
+
+func TestListQuestions_InvalidSort(t *testing.T) {
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{})
+
+	_, err := svc.ListQuestions(context.Background(), "invalid", 10, 0)
+
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("expected ErrValidation, got %v", err)
+	}
+}
+
+func TestListQuestions_LimitTooLarge(t *testing.T) {
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{})
+
+	_, err := svc.ListQuestions(context.Background(), "newest", 101, 0)
+
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("expected ErrValidation for large limit, got %v", err)
+	}
+}
+
+func TestListQuestions_NegativeOffset(t *testing.T) {
+	svc := newSvc(&mockTxBeginner{}, &mockQuestionRepo{}, &mockAnswerRepo{}, &mockAIClient{})
+
+	_, err := svc.ListQuestions(context.Background(), "newest", 10, -1)
+
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("expected ErrValidation for negative offset, got %v", err)
 	}
 }

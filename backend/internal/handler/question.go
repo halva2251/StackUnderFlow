@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -19,6 +20,7 @@ type questionService interface {
 	CreateQuestion(ctx context.Context, userID, title, body string) (*model.QuestionResponse, error)
 	GetQuestion(ctx context.Context, id string) (*model.QuestionResponse, error)
 	Argue(ctx context.Context, questionID, userID, argument string) (*model.Answer, error)
+	ListQuestions(ctx context.Context, sort string, limit, offset int) (*model.QuestionListResponse, error)
 }
 
 type QuestionHandler struct {
@@ -104,4 +106,41 @@ func (h *QuestionHandler) Argue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	WriteJSON(w, http.StatusCreated, answer)
+}
+
+func (h *QuestionHandler) List(w http.ResponseWriter, r *http.Request) {
+	sort := r.URL.Query().Get("sort")
+	limit := 20
+	offset := 0
+
+	if sort == "" {
+		sort = "newest"
+	}
+
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if _, err := fmt.Sscanf(l, "%d", &limit); err != nil || limit <= 0 || limit > 100 {
+			WriteError(w, http.StatusBadRequest, "INVALID_PARAM", "limit must be between 1 and 100")
+			return
+		}
+	}
+
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if _, err := fmt.Sscanf(o, "%d", &offset); err != nil || offset < 0 {
+			WriteError(w, http.StatusBadRequest, "INVALID_PARAM", "offset must be non-negative")
+			return
+		}
+	}
+
+	result, err := h.service.ListQuestions(r.Context(), sort, limit, offset)
+	if err != nil {
+		if errors.Is(err, service.ErrValidation) {
+			WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+			return
+		}
+		slog.Error("failed to list questions", "error", err)
+		WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list questions")
+		return
+	}
+
+	WriteJSON(w, http.StatusOK, result)
 }

@@ -53,6 +53,7 @@ type QuestionRepo interface {
 	Create(ctx context.Context, q repository.Querier, userID, title, body string) (*model.Question, error)
 	GetByID(ctx context.Context, q repository.Querier, id string) (*model.Question, error)
 	GetByIDForUpdate(ctx context.Context, q repository.Querier, id string) (*model.Question, error)
+	List(ctx context.Context, q repository.Querier, sort string, limit, offset int) ([]model.Question, int, error)
 }
 
 // AnswerRepo defines the data access the service needs for answers.
@@ -242,4 +243,42 @@ func (s *QuestionService) Argue(ctx context.Context, questionID, userID, argumen
 	}
 
 	return answer, nil
+}
+
+func (s *QuestionService) ListQuestions(ctx context.Context, sort string, limit, offset int) (*model.QuestionListResponse, error) {
+	if sort == "" {
+		sort = "newest"
+	}
+	if sort != "newest" && sort != "most_upvoted" {
+		return nil, fmt.Errorf("invalid sort %q: %w", sort, ErrValidation)
+	}
+	if limit <= 0 || limit > 100 {
+		return nil, fmt.Errorf("limit must be between 1 and 100: %w", ErrValidation)
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must be non-negative: %w", ErrValidation)
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer repository.RollbackTx(ctx, tx)
+
+	questions, total, err := s.questions.List(ctx, tx, sort, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list questions: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return &model.QuestionListResponse{
+		Questions: questions,
+		Total:     total,
+		Limit:     limit,
+		Offset:    offset,
+		Sort:      sort,
+	}, nil
 }

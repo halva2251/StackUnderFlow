@@ -97,6 +97,7 @@ func main() {
 		// Public routes with strict rate limiting
 		r.With(authLimiter.Limit).Post("/auth/register", authHandler.Register)
 		r.With(authLimiter.Limit).Post("/auth/login", authHandler.Login)
+		r.Get("/questions", questionHandler.List)
 		r.Get("/questions/{id}", questionHandler.Get)
 
 		// Protected routes

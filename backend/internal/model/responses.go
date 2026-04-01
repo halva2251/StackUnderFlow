@@ -5,6 +5,14 @@ type QuestionResponse struct {
 	Answers  []Answer `json:"answers"`
 }
 
+type QuestionListResponse struct {
+	Questions []Question `json:"questions"`
+	Total     int        `json:"total"`
+	Limit     int        `json:"limit"`
+	Offset    int        `json:"offset"`
+	Sort      string     `json:"sort"`
+}
+
 type LeaderboardEntry struct {
 	Answer   Answer   `json:"answer"`
 	Question Question `json:"question"`
