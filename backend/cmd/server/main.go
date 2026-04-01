@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/joho/godotenv"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
@@ -32,6 +33,10 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
+
+	// Load .env file if present (development convenience)
+	// Looks for .env in the project root (one level up from backend/)
+	_ = godotenv.Load("../.env")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -58,6 +63,7 @@ func main() {
 	r.Use(chimw.Recoverer)
 	r.Use(middleware.RequestSizeLimit(1 << 20))
 	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.CORS("http://localhost:3000", "http://127.0.0.1:3000"))
 
 	// General rate limiter: 10 req/s with burst of 100
 	// Trusted proxies: Docker bridge network (172.20.0.0/16) and localhost.
