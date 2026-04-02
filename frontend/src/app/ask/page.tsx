@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createQuestion } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { useRouter } from 'next/navigation'
@@ -13,10 +13,13 @@ export default function AskPage() {
   const { user } = useAuth()
   const router = useRouter()
 
-  if (!user) {
-    router.push('/login')
-    return null
-  }
+  useEffect(() => {
+    if (!user) {
+      router.push('/login')
+    }
+  }, [user, router])
+
+  if (!user) return null
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

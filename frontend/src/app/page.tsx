@@ -7,17 +7,19 @@ import { Question, SortOption } from '@/types'
 
 export default function HomePage() {
   const [questions, setQuestions] = useState<Question[]>([])
-  const [total, setTotal] = useState(0)
   const [sort, setSort] = useState<SortOption>('newest')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const handleSortChange = (s: SortOption) => {
+    setSort(s)
     setLoading(true)
+  }
+
+  useEffect(() => {
     listQuestions({ sort, limit: 20 })
       .then(data => {
         setQuestions(data.questions)
-        setTotal(data.total)
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
@@ -31,7 +33,7 @@ export default function HomePage() {
           {(['newest', 'most_upvoted'] as SortOption[]).map(s => (
             <button
               key={s}
-              onClick={() => setSort(s)}
+              onClick={() => handleSortChange(s)}
               className={`px-3 py-1 rounded-md transition-colors ${
                 sort === s ? 'bg-white shadow text-orange-600 font-medium' : 'text-gray-600 hover:text-gray-900'
               }`}

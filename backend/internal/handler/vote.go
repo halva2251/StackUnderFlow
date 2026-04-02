@@ -15,8 +15,8 @@ import (
 )
 
 type voteService interface {
-	Vote(ctx context.Context, userID, targetType, targetID string, value int) (*model.Vote, error)
-	RemoveVote(ctx context.Context, userID, targetType, targetID string) error
+	Vote(ctx context.Context, userID, targetType, targetID string, value int) (*model.VoteResponse, error)
+	RemoveVote(ctx context.Context, userID, targetType, targetID string) (*model.VoteResponse, error)
 }
 
 type VoteHandler struct {
@@ -44,7 +44,7 @@ func (h *VoteHandler) VoteOn(targetType string) http.HandlerFunc {
 			return
 		}
 
-		vote, err := h.service.Vote(r.Context(), userID, targetType, targetID, req.Value)
+		resp, err := h.service.Vote(r.Context(), userID, targetType, targetID, req.Value)
 		if err != nil {
 			if errors.Is(err, service.ErrValidation) {
 				WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
@@ -59,7 +59,7 @@ func (h *VoteHandler) VoteOn(targetType string) http.HandlerFunc {
 			return
 		}
 
-		WriteJSON(w, http.StatusOK, vote)
+		WriteJSON(w, http.StatusOK, resp)
 	}
 }
 
@@ -74,8 +74,12 @@ func (h *VoteHandler) RemoveVoteOn(targetType string) http.HandlerFunc {
 			return
 		}
 
-		err := h.service.RemoveVote(r.Context(), userID, targetType, targetID)
+		resp, err := h.service.RemoveVote(r.Context(), userID, targetType, targetID)
 		if err != nil {
+			if errors.Is(err, service.ErrValidation) {
+				WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+				return
+			}
 			if errors.Is(err, service.ErrNotFound) {
 				WriteError(w, http.StatusNotFound, "NOT_FOUND", "vote not found")
 				return
@@ -85,6 +89,6 @@ func (h *VoteHandler) RemoveVoteOn(targetType string) http.HandlerFunc {
 			return
 		}
 
-		w.WriteHeader(http.StatusNoContent)
+		WriteJSON(w, http.StatusOK, resp)
 	}
 }

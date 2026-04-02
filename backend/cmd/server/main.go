@@ -63,13 +63,22 @@ func main() {
 	r.Use(chimw.Recoverer)
 	r.Use(middleware.RequestSizeLimit(1 << 20))
 	r.Use(middleware.SecurityHeaders())
-	r.Use(middleware.CORS("http://localhost:3000", "http://127.0.0.1:3000"))
+
+	corsOrigins := strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",")
+	if len(corsOrigins) == 1 && corsOrigins[0] == "" {
+		corsOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000"}
+	}
+	r.Use(middleware.CORS(corsOrigins...))
 
 	// General rate limiter: 10 req/s with burst of 100
-	// Trusted proxies: Docker bridge network (172.20.0.0/16) and localhost.
+	// Trusted proxies: configurable via TRUSTED_PROXY_CIDRS env var.
 	// X-Real-IP / X-Forwarded-For headers are only trusted from these sources.
 	// This prevents spoofing if the API port is accidentally exposed directly.
-	generalLimiter := middleware.NewRateLimiter(rate.Limit(10), 100, []string{"127.0.0.0/8", "172.20.0.0/16"})
+	trustedProxyCIDRs := strings.Split(os.Getenv("TRUSTED_PROXY_CIDRS"), ",")
+	if len(trustedProxyCIDRs) == 1 && trustedProxyCIDRs[0] == "" {
+		trustedProxyCIDRs = []string{"127.0.0.0/8"}
+	}
+	generalLimiter := middleware.NewRateLimiter(rate.Limit(10), 100, trustedProxyCIDRs)
 	defer generalLimiter.Stop()
 	r.Use(generalLimiter.Limit)
 
@@ -95,7 +104,7 @@ func main() {
 	voteHandler := handler.NewVoteHandler(voteSvc)
 
 	// Stricter rate limiter for auth endpoints: 1 req per 10 sec
-	authLimiter := middleware.NewRateLimiter(rate.Limit(0.1), 1, []string{"127.0.0.0/8", "172.20.0.0/16"})
+	authLimiter := middleware.NewRateLimiter(rate.Limit(0.1), 1, trustedProxyCIDRs)
 	defer authLimiter.Stop()
 
 	// API routes

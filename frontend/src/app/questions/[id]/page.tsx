@@ -16,7 +16,6 @@ export default function QuestionPage({ params }: { params: Promise<{ id: string 
   const router = useRouter()
 
   const loadQuestion = () => {
-    setLoading(true)
     getQuestion(id)
       .then(data => {
         setQuestion(data.question)
@@ -42,7 +41,7 @@ export default function QuestionPage({ params }: { params: Promise<{ id: string 
         setAnswers(as => as.map(a => a.id === answerId ? { ...a, upvotes: result.upvotes, downvotes: result.downvotes } : a))
       }
     } catch (err) {
-      console.error('Vote failed:', err)
+      alert('Failed to vote. Please try again.')
     }
   }
 
@@ -57,7 +56,7 @@ export default function QuestionPage({ params }: { params: Promise<{ id: string 
         setAnswers(as => as.map(a => a.id === answerId ? { ...a, upvotes: result.upvotes, downvotes: result.downvotes } : a))
       }
     } catch (err) {
-      console.error('Remove vote failed:', err)
+      alert('Failed to remove vote. Please try again.')
     }
   }
 
@@ -104,6 +103,7 @@ function VoteButtons({ score, upvotes, downvotes, onVote, onRemoveVote }: {
       <button onClick={() => onVote(1)} className="p-1 text-gray-400 hover:text-green-600" title="Upvote">▲</button>
       <span className={`font-bold ${score > 0 ? 'text-green-600' : score < 0 ? 'text-red-600' : 'text-gray-500'}`}>{score}</span>
       <button onClick={() => onVote(-1)} className="p-1 text-gray-400 hover:text-red-600" title="Downvote">▼</button>
+      <button onClick={onRemoveVote} className="p-1 text-xs text-gray-300 hover:text-gray-500 ml-1" title="Clear Vote">✕</button>
       <span className="text-xs text-gray-400">{upvotes}↑ {downvotes}↓</span>
     </div>
   )
@@ -137,6 +137,7 @@ function AnswerCard({ answer, onVote, onRemoveVote }: { answer: Answer; onVote: 
 function ArgueSection({ questionId, onArgued }: { questionId: string; onArgued: () => void }) {
   const [argument, setArgument] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const { user } = useAuth()
   const router = useRouter()
 
@@ -153,7 +154,7 @@ function ArgueSection({ questionId, onArgued }: { questionId: string; onArgued: 
       setArgument('')
       onArgued()
     } catch (err) {
-      console.error('Argue failed:', err)
+      setError(err instanceof Error ? err.message : 'Failed to argue with the AI')
     } finally {
       setSubmitting(false)
     }
@@ -165,6 +166,7 @@ function ArgueSection({ questionId, onArgued }: { questionId: string; onArgued: 
       <p className="text-sm text-orange-700 mb-3">
         Think the AI is wrong? Push back and it will escalate its responses!
       </p>
+      {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
           type="text"

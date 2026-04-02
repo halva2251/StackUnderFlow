@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server ./cmd/server
 
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates wget \
+RUN apk add --no-cache ca-certificates=20250911-r0 wget=1.25.0-r0 \
     && addgroup -g 1001 -S appgroup \
     && adduser -S appuser -u 1001 -G appgroup
 
@@ -21,6 +21,6 @@ USER appuser
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=30s --timeout=3s CMD wget -q -O /dev/null http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["/server"]

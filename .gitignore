@@ -51,6 +51,11 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
+# Build outputs
+backend/server
+
+docs/
+
 # Test coverage output
 coverage.out
 coverage.html
