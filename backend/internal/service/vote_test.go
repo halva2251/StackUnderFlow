@@ -67,8 +67,19 @@ type mockTxWithExec struct {
 }
 
 func (m *mockTxWithExec) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
-	return errRow{err: pgx.ErrNoRows}
+	return countRow{up: 10, down: 5}
 }
+
+type countRow struct {
+	up, down int
+}
+
+func (r countRow) Scan(dest ...any) error {
+	*dest[0].(*int) = r.up
+	*dest[1].(*int) = r.down
+	return nil
+}
+
 func (m *mockTxWithExec) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
 	return nil, nil
 }
@@ -93,16 +104,14 @@ func TestVote_NewUpvote(t *testing.T) {
 	tx := &mockTxWithExec{}
 	svc := NewVoteService(&mockTxBeginnerWithExec{tx: tx}, &mockVoteRepo{})
 
-	vote, err := svc.Vote(context.Background(), "u-1", "question", "q-1", 1)
+	resp, err := svc.Vote(context.Background(), "u-1", "question", "q-1", 1)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if vote.Value != 1 {
-		t.Errorf("expected value 1, got %d", vote.Value)
-	}
-	if vote.TargetType != "question" {
-		t.Errorf("expected target_type 'question', got %s", vote.TargetType)
+	// mock counts are 10, 5 from mockTxWithExec.QueryRow
+	if resp.Upvotes != 10 {
+		t.Errorf("expected upvotes 10, got %d", resp.Upvotes)
 	}
 }
 
@@ -110,13 +119,13 @@ func TestVote_NewDownvote(t *testing.T) {
 	tx := &mockTxWithExec{}
 	svc := NewVoteService(&mockTxBeginnerWithExec{tx: tx}, &mockVoteRepo{})
 
-	vote, err := svc.Vote(context.Background(), "u-1", "answer", "a-1", -1)
+	resp, err := svc.Vote(context.Background(), "u-1", "answer", "a-1", -1)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if vote.Value != -1 {
-		t.Errorf("expected value -1, got %d", vote.Value)
+	if resp.Downvotes != 5 {
+		t.Errorf("expected downvotes 5, got %d", resp.Downvotes)
 	}
 }
 
@@ -127,13 +136,13 @@ func TestVote_ChangeUpvoteToDownvote(t *testing.T) {
 	}
 	svc := NewVoteService(&mockTxBeginnerWithExec{tx: tx}, repo)
 
-	vote, err := svc.Vote(context.Background(), "u-1", "question", "q-1", -1)
+	resp, err := svc.Vote(context.Background(), "u-1", "question", "q-1", -1)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if vote.Value != -1 {
-		t.Errorf("expected value -1, got %d", vote.Value)
+	if resp.Upvotes != 10 {
+		t.Errorf("expected upvotes 10, got %d", resp.Upvotes)
 	}
 }
 
@@ -144,13 +153,13 @@ func TestVote_SameValueIdempotent(t *testing.T) {
 	}
 	svc := NewVoteService(&mockTxBeginnerWithExec{tx: tx}, repo)
 
-	vote, err := svc.Vote(context.Background(), "u-1", "question", "q-1", 1)
+	resp, err := svc.Vote(context.Background(), "u-1", "question", "q-1", 1)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if vote.ID != "v-1" {
-		t.Errorf("expected existing vote ID v-1, got %s", vote.ID)
+	if resp.Upvotes != 10 {
+		t.Errorf("expected upvotes 10, got %d", resp.Upvotes)
 	}
 }
 
@@ -197,10 +206,13 @@ func TestRemoveVote_Success(t *testing.T) {
 	}
 	svc := NewVoteService(&mockTxBeginnerWithExec{tx: tx}, repo)
 
-	err := svc.RemoveVote(context.Background(), "u-1", "question", "q-1")
+	resp, err := svc.RemoveVote(context.Background(), "u-1", "question", "q-1")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Upvotes != 10 {
+		t.Errorf("expected upvotes 10, got %d", resp.Upvotes)
 	}
 }
 
@@ -209,7 +221,7 @@ func TestRemoveVote_NotFound(t *testing.T) {
 	repo := &mockVoteRepo{} // GetByUserAndTarget returns ErrNotFound by default
 	svc := NewVoteService(&mockTxBeginnerWithExec{tx: tx}, repo)
 
-	err := svc.RemoveVote(context.Background(), "u-1", "question", "q-1")
+	_, err := svc.RemoveVote(context.Background(), "u-1", "question", "q-1")
 
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
@@ -219,7 +231,7 @@ func TestRemoveVote_NotFound(t *testing.T) {
 func TestRemoveVote_InvalidTargetType(t *testing.T) {
 	svc := NewVoteService(&mockTxBeginner{}, &mockVoteRepo{})
 
-	err := svc.RemoveVote(context.Background(), "u-1", "invalid", "x-1")
+	_, err := svc.RemoveVote(context.Background(), "u-1", "invalid", "x-1")
 
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("expected ErrValidation, got %v", err)

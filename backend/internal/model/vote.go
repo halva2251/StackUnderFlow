@@ -10,3 +10,8 @@ type Vote struct {
 	Value      int       `json:"value"`
 	CreatedAt  time.Time `json:"created_at"`
 }
+
+type VoteResponse struct {
+	Upvotes   int `json:"upvotes"`
+	Downvotes int `json:"downvotes"`
+}

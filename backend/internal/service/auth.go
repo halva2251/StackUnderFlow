@@ -75,7 +75,7 @@ func (s *AuthService) Register(ctx context.Context, username, password string) (
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
-	user, err := s.users.Create(ctx, "local", "", username, "", string(hash))
+	user, err := s.users.Create(ctx, "local", username, username, "", string(hash))
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}

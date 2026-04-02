@@ -14,22 +14,28 @@ import (
 )
 
 type mockVoteService struct {
-	vote *model.Vote
+	resp *model.VoteResponse
 	err  error
 }
 
-func (m *mockVoteService) Vote(_ context.Context, userID, targetType, targetID string, value int) (*model.Vote, error) {
+func (m *mockVoteService) Vote(_ context.Context, _, _, _ string, _ int) (*model.VoteResponse, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	if m.vote != nil {
-		return m.vote, nil
+	if m.resp != nil {
+		return m.resp, nil
 	}
-	return &model.Vote{ID: "v-123", UserID: userID, TargetType: targetType, TargetID: targetID, Value: value}, nil
+	return &model.VoteResponse{Upvotes: 10, Downvotes: 5}, nil
 }
 
-func (m *mockVoteService) RemoveVote(_ context.Context, _, _, _ string) error {
-	return m.err
+func (m *mockVoteService) RemoveVote(_ context.Context, _, _, _ string) (*model.VoteResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.resp != nil {
+		return m.resp, nil
+	}
+	return &model.VoteResponse{Upvotes: 9, Downvotes: 5}, nil
 }
 
 func TestVoteHandler_VoteOn_Success(t *testing.T) {
@@ -46,12 +52,12 @@ func TestVoteHandler_VoteOn_Success(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 
-	var result model.Vote
+	var result model.VoteResponse
 	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 		t.Fatalf("failed to decode: %v", err)
 	}
-	if result.Value != 1 {
-		t.Errorf("expected value 1, got %d", result.Value)
+	if result.Upvotes != 10 {
+		t.Errorf("expected upvotes 10, got %d", result.Upvotes)
 	}
 }
 
@@ -156,8 +162,16 @@ func TestVoteHandler_RemoveVoteOn_Success(t *testing.T) {
 
 	h.RemoveVoteOn("question")(w, req)
 
-	if w.Code != http.StatusNoContent {
-		t.Errorf("expected 204, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var result model.VoteResponse
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if result.Upvotes != 9 {
+		t.Errorf("expected upvotes 9, got %d", result.Upvotes)
 	}
 }
 

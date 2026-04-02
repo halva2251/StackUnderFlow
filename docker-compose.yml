@@ -11,18 +11,21 @@ services:
         condition: service_healthy
     env_file:
       - .env
-    ports:
-      - '127.0.0.1:8080:8080'
-    restart: unless-stopped
     networks:
       - frontend
       - backend
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     deploy:
       resources:
         limits:
@@ -31,11 +34,22 @@ services:
         reservations:
           cpus: '0.25'
           memory: 128M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stackunderflow-frontend
+    depends_on:
+      nginx:
+        condition: service_started
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://nginx/api/v1
+    networks:
+      - frontend
+    restart: unless-stopped
+    # No healthcheck: frontend is only accessed via nginx proxy, not directly
 
   nginx:
     image: nginx:1.27-alpine
@@ -49,10 +63,14 @@ services:
     ports:
       - '127.0.0.1:80:80'
       - '127.0.0.1:443:443'
-    restart: unless-stopped
     networks:
       - frontend
-      - backend
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     deploy:
       resources:
         limits:
@@ -61,29 +79,27 @@ services:
         reservations:
           cpus: '0.1'
           memory: 32M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   postgres:
     image: postgres:18.3-alpine
     container_name: stackunderflow-postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    restart: unless-stopped
+    env_file:
+      - .env
     networks:
       - backend
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}" ]
       interval: 5s
       timeout: 5s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     deploy:
       resources:
         limits:
@@ -92,18 +108,13 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-volumes:
-  pgdata:
-
 networks:
   frontend:
     driver: bridge
   backend:
     driver: bridge
     internal: true
+
+volumes:
+  pgdata:
+

@@ -1,5 +1,15 @@
 # Environment variables
 .env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Secrets
+*.pem
+*.key
+credentials.json
+secrets.json
 
 # Claude / AI tooling
 .claude/
@@ -12,11 +22,21 @@ GEMINI.md
 *.dll
 *.so
 *.dylib
+bin/
 /tmp
 
 # Dependency directories
 vendor/
 node_modules/
+
+# Frontend build outputs
+.next/
+out/
+.turbo/
+npm-debug.log*
+yarn-error.log
+.pnp.*
+.pnp.js
 
 # IDE files
 .vscode/
@@ -30,6 +50,11 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# Build outputs
+backend/server
+
+docs/
 
 # Test coverage output
 coverage.out

@@ -26,7 +26,7 @@ func NewVoteService(db TxBeginner, votes VoteRepo) *VoteService {
 }
 
 // Vote casts or changes a vote on a question or answer.
-func (s *VoteService) Vote(ctx context.Context, userID, targetType, targetID string, value int) (*model.Vote, error) {
+func (s *VoteService) Vote(ctx context.Context, userID, targetType, targetID string, value int) (*model.VoteResponse, error) {
 	if err := validateTargetType(targetType); err != nil {
 		return nil, err
 	}
@@ -41,7 +41,6 @@ func (s *VoteService) Vote(ctx context.Context, userID, targetType, targetID str
 	defer repository.RollbackTx(ctx, tx)
 
 	// Lock the target row to serialize concurrent votes on the same target.
-	// This prevents race conditions where two votes compute incorrect counter deltas.
 	if err := lockTarget(ctx, tx, targetType, targetID); err != nil {
 		return nil, err
 	}
@@ -50,17 +49,6 @@ func (s *VoteService) Vote(ctx context.Context, userID, targetType, targetID str
 	oldVote, err := s.votes.GetByUserAndTarget(ctx, tx, userID, targetType, targetID)
 	if err != nil && !errors.Is(err, repository.ErrNotFound) {
 		return nil, fmt.Errorf("get existing vote: %w", err)
-	}
-
-	// If voting the same way, return the existing vote (idempotent)
-	if oldVote != nil && oldVote.Value == value {
-		return oldVote, nil
-	}
-
-	// Upsert the vote
-	vote, err := s.votes.Upsert(ctx, tx, userID, targetType, targetID, value)
-	if err != nil {
-		return nil, fmt.Errorf("upsert vote: %w", err)
 	}
 
 	// Calculate counter deltas
@@ -73,6 +61,15 @@ func (s *VoteService) Vote(ctx context.Context, userID, targetType, targetID str
 			downDelta = 1
 		}
 	} else {
+		// If voting the same way, fetch and return current counts (idempotent)
+		if oldVote.Value == value {
+			up, down, err := getTargetCounts(ctx, tx, targetType, targetID)
+			if err != nil {
+				return nil, err
+			}
+			return &model.VoteResponse{Upvotes: up, Downvotes: down}, nil
+		}
+
 		// Changed vote: undo old, apply new
 		if oldVote.Value == 1 {
 			upDelta = -1
@@ -86,7 +83,14 @@ func (s *VoteService) Vote(ctx context.Context, userID, targetType, targetID str
 		}
 	}
 
-	if err := updateCounters(ctx, tx, targetType, targetID, upDelta, downDelta); err != nil {
+	// Upsert the vote
+	_, err = s.votes.Upsert(ctx, tx, userID, targetType, targetID, value)
+	if err != nil {
+		return nil, fmt.Errorf("upsert vote: %w", err)
+	}
+
+	up, down, err := updateCounters(ctx, tx, targetType, targetID, upDelta, downDelta)
+	if err != nil {
 		return nil, err
 	}
 
@@ -94,37 +98,37 @@ func (s *VoteService) Vote(ctx context.Context, userID, targetType, targetID str
 		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
-	return vote, nil
+	return &model.VoteResponse{Upvotes: up, Downvotes: down}, nil
 }
 
 // RemoveVote removes a user's vote on a question or answer.
-func (s *VoteService) RemoveVote(ctx context.Context, userID, targetType, targetID string) error {
+func (s *VoteService) RemoveVote(ctx context.Context, userID, targetType, targetID string) (*model.VoteResponse, error) {
 	if err := validateTargetType(targetType); err != nil {
-		return err
+		return nil, err
 	}
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
+		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
 	defer repository.RollbackTx(ctx, tx)
 
 	// Lock the target row to serialize concurrent vote removals.
 	if err := lockTarget(ctx, tx, targetType, targetID); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Get existing vote to know which counter to decrement
 	oldVote, err := s.votes.GetByUserAndTarget(ctx, tx, userID, targetType, targetID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("vote %w", ErrNotFound)
+			return nil, fmt.Errorf("vote %w", ErrNotFound)
 		}
-		return fmt.Errorf("get existing vote: %w", err)
+		return nil, fmt.Errorf("get existing vote: %w", err)
 	}
 
 	if err := s.votes.Delete(ctx, tx, userID, targetType, targetID); err != nil {
-		return fmt.Errorf("delete vote: %w", err)
+		return nil, fmt.Errorf("delete vote: %w", err)
 	}
 
 	// Decrement the appropriate counter
@@ -135,15 +139,16 @@ func (s *VoteService) RemoveVote(ctx context.Context, userID, targetType, target
 		downDelta = -1
 	}
 
-	if err := updateCounters(ctx, tx, targetType, targetID, upDelta, downDelta); err != nil {
-		return err
+	up, down, err := updateCounters(ctx, tx, targetType, targetID, upDelta, downDelta)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
+		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
-	return nil
+	return &model.VoteResponse{Upvotes: up, Downvotes: down}, nil
 }
 
 func validateTargetType(targetType string) error {
@@ -151,6 +156,26 @@ func validateTargetType(targetType string) error {
 		return fmt.Errorf("invalid target type %q: %w", targetType, ErrValidation)
 	}
 	return nil
+}
+
+// getTargetCounts returns current vote counts for a target without modifying them.
+func getTargetCounts(ctx context.Context, q repository.Querier, targetType, targetID string) (int, int, error) {
+	var up, down int
+	var stmt string
+	switch targetType {
+	case "question":
+		stmt = `SELECT upvotes, downvotes FROM questions WHERE id = $1`
+	case "answer":
+		stmt = `SELECT upvotes, downvotes FROM answers WHERE id = $1`
+	default:
+		return 0, 0, fmt.Errorf("invalid target type %q", targetType)
+	}
+
+	err := q.QueryRow(ctx, stmt, targetID).Scan(&up, &down)
+	if err != nil {
+		return 0, 0, fmt.Errorf("get %s counts: %w", targetType, err)
+	}
+	return up, down, nil
 }
 
 // lockTarget acquires a row-level lock on the target (question or answer) to
@@ -177,23 +202,21 @@ func lockTarget(ctx context.Context, q repository.Querier, targetType, targetID 
 }
 
 // updateCounters atomically adjusts the cached vote counters on the target table.
-func updateCounters(ctx context.Context, q repository.Querier, targetType, targetID string, upDelta, downDelta int) error {
+func updateCounters(ctx context.Context, q repository.Querier, targetType, targetID string, upDelta, downDelta int) (int, int, error) {
 	var stmt string
 	switch targetType {
 	case "question":
-		stmt = `UPDATE questions SET upvotes = upvotes + $1, downvotes = downvotes + $2 WHERE id = $3`
+		stmt = `UPDATE questions SET upvotes = upvotes + $1, downvotes = downvotes + $2 WHERE id = $3 RETURNING upvotes, downvotes`
 	case "answer":
-		stmt = `UPDATE answers SET upvotes = upvotes + $1, downvotes = downvotes + $2 WHERE id = $3`
+		stmt = `UPDATE answers SET upvotes = upvotes + $1, downvotes = downvotes + $2 WHERE id = $3 RETURNING upvotes, downvotes`
 	default:
-		return fmt.Errorf("update counters: invalid target type %q: %w", targetType, ErrValidation)
+		return 0, 0, fmt.Errorf("update counters: invalid target type %q: %w", targetType, ErrValidation)
 	}
 
-	tag, err := q.Exec(ctx, stmt, upDelta, downDelta, targetID)
+	var up, down int
+	err := q.QueryRow(ctx, stmt, upDelta, downDelta, targetID).Scan(&up, &down)
 	if err != nil {
-		return fmt.Errorf("update %s counters: %w", targetType, err)
+		return 0, 0, fmt.Errorf("update %s counters: %w", targetType, err)
 	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%s %w", targetType, ErrNotFound)
-	}
-	return nil
+	return up, down, nil
 }
