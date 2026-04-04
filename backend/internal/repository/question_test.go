@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -174,9 +175,9 @@ func TestQuestionRepository_GetByID_NotFound(t *testing.T) {
 	// Act
 	question, err := questionRepo.GetByID(ctx, pool, "00000000-0000-0000-0000-000000000000")
 
-	// Assert
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Assert — GetByID returns ErrNotFound for non-existent IDs
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got: %v", err)
 	}
 	if question != nil {
 		t.Errorf("expected nil, got question: %+v", question)

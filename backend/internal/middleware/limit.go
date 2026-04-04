@@ -15,14 +15,19 @@ func RequestSizeLimit(maxBytes int64) func(http.Handler) http.Handler {
 	}
 }
 
-// writeError writes a JSON error response.
+// writeError writes a JSON error response matching the model.ErrorResponse shape.
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]string{
-			"code":    code,
-			"message": message,
-		},
+	_ = json.NewEncoder(w).Encode(struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}{
+		Error: struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}{Code: code, Message: message},
 	})
 }

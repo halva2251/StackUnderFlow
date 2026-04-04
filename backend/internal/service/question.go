@@ -19,15 +19,18 @@ var (
 )
 
 const (
-	maxTitleLen   = 300
-	maxBodyLen    = 10000
-	maxArgLen     = 5000
-	maxArgueDepth = 3
+	maxTitleLen      = 300
+	maxBodyLen       = 10000
+	maxArgLen        = 5000
+	maxArgueDepth    = 3
+	maxAIResponseLen = 50000
 )
 
-// TxBeginner can begin a database transaction. *pgxpool.Pool satisfies this interface.
+// TxBeginner can begin a database transaction and provide direct query access.
 type TxBeginner interface {
 	Begin(ctx context.Context) (repository.Tx, error)
+	// Pool returns the underlying connection pool as a Querier for non-transactional reads.
+	Pool() repository.Querier
 }
 
 // pgxTxBeginner adapts *pgxpool.Pool to TxBeginner.
@@ -46,6 +49,10 @@ func (b *pgxTxBeginner) Begin(ctx context.Context) (repository.Tx, error) {
 		return nil, err
 	}
 	return tx, nil
+}
+
+func (b *pgxTxBeginner) Pool() repository.Querier {
+	return b.pool
 }
 
 // QuestionRepo defines the data access the service needs for questions.
@@ -102,6 +109,9 @@ func (s *QuestionService) CreateQuestion(ctx context.Context, userID, title, bod
 	if err != nil {
 		return nil, fmt.Errorf("generate answer: %w", err)
 	}
+	if len(aiResponse) > maxAIResponseLen {
+		aiResponse = aiResponse[:maxAIResponseLen]
+	}
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -130,15 +140,9 @@ func (s *QuestionService) CreateQuestion(ctx context.Context, userID, title, bod
 }
 
 func (s *QuestionService) GetQuestion(ctx context.Context, id string) (*model.QuestionResponse, error) {
-	// Use a non-transactional pool read via a nil-tx compatible querier.
-	// We begin a read transaction here to reuse the same TxBeginner interface.
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin transaction: %w", err)
-	}
-	defer repository.RollbackTx(ctx, tx)
+	pool := s.db.Pool()
 
-	question, err := s.questions.GetByID(ctx, tx, id)
+	question, err := s.questions.GetByID(ctx, pool, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, ErrQuestionMissing
@@ -146,7 +150,7 @@ func (s *QuestionService) GetQuestion(ctx context.Context, id string) (*model.Qu
 		return nil, fmt.Errorf("get question: %w", err)
 	}
 
-	answers, err := s.answers.GetByQuestionID(ctx, tx, id)
+	answers, err := s.answers.GetByQuestionID(ctx, pool, id)
 	if err != nil {
 		return nil, fmt.Errorf("get answers: %w", err)
 	}
@@ -225,13 +229,37 @@ func (s *QuestionService) Argue(ctx context.Context, questionID, userID, argumen
 	if err != nil {
 		return nil, fmt.Errorf("generate answer: %w", err)
 	}
+	if len(aiResponse) > maxAIResponseLen {
+		aiResponse = aiResponse[:maxAIResponseLen]
+	}
 
-	// Phase 3: Short write transaction — persist the new answer only
+	// Phase 3: Short write transaction — persist the new answer only.
+	// Re-check depth inside the write transaction to prevent concurrent
+	// requests from inserting duplicate depths after the read lock was released.
 	writeTx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin write transaction: %w", err)
 	}
 	defer repository.RollbackTx(ctx, writeTx)
+
+	// Lock the question row and re-verify depth hasn't changed since the read phase.
+	_, err = s.questions.GetByIDForUpdate(ctx, writeTx, questionID)
+	if err != nil {
+		return nil, fmt.Errorf("lock question for write: %w", err)
+	}
+
+	currentDepth, err := s.answers.GetMaxDepth(ctx, writeTx, questionID)
+	if err != nil {
+		return nil, fmt.Errorf("recheck max depth: %w", err)
+	}
+	if currentDepth >= maxArgueDepth {
+		return nil, fmt.Errorf("maximum argue depth reached: %w", ErrValidation)
+	}
+	if currentDepth != maxDepth {
+		// Another request inserted an answer while we were calling the AI.
+		// Use the actual next depth to avoid gaps or duplicates.
+		nextDepth = currentDepth + 1
+	}
 
 	answer, err := s.answers.Create(ctx, writeTx, questionID, userID, nextDepth, argument, aiResponse)
 	if err != nil {
@@ -259,19 +287,9 @@ func (s *QuestionService) ListQuestions(ctx context.Context, sort string, limit,
 		return nil, fmt.Errorf("offset must be non-negative: %w", ErrValidation)
 	}
 
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin transaction: %w", err)
-	}
-	defer repository.RollbackTx(ctx, tx)
-
-	questions, total, err := s.questions.List(ctx, tx, sort, limit, offset)
+	questions, total, err := s.questions.List(ctx, s.db.Pool(), sort, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list questions: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return &model.QuestionListResponse{

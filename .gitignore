@@ -10,6 +10,7 @@
 *.key
 credentials.json
 secrets.json
+nginx/tls/
 
 # Claude / AI tooling
 .claude/

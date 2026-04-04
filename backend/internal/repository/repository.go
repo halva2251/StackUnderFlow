@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,10 +48,11 @@ type Tx interface {
 }
 
 // RollbackTx safely rolls back a transaction, ignoring "transaction already closed" errors.
-func RollbackTx(ctx context.Context, tx Tx) error {
+// Designed to be used with defer; logs unexpected rollback failures instead of returning
+// them, since deferred calls cannot propagate return values.
+func RollbackTx(ctx context.Context, tx Tx) {
 	err := tx.Rollback(ctx)
 	if err != nil && !errors.Is(err, pgx.ErrTxClosed) {
-		return fmt.Errorf("rollback transaction: %w", err)
+		slog.Error("rollback transaction failed", "error", err)
 	}
-	return nil
 }

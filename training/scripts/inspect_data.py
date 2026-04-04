@@ -26,6 +26,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from scripts.constants import CHARACTER_BREAKS
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -93,13 +95,8 @@ def validate_item(item: dict[str, Any], file_type: str) -> list[str]:
         if len(output) > MAX_OUTPUT_CHARS:
             warnings.append(f"Very long output ({len(output)} chars)")
         lower = output.lower()
-        # Keep in sync with _CHARACTER_BREAKS in convert_format.py
-        for phrase in [
-            "as an ai language model", "as a language model", "i'm just an ai",
-            "i cannot provide", "i cannot assist", "actually, i was wrong",
-            "i apologize for the confusion", "let me correct myself",
-            "i should clarify that my previous",
-        ]:
+        # Imported from scripts.constants — kept in sync with convert_format.py
+        for phrase in CHARACTER_BREAKS:
             if phrase in lower:
                 warnings.append(f"Possible character break: '{phrase}' found")
 

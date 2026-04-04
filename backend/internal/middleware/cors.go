@@ -31,6 +31,7 @@ func CORS(allowedOrigins ...string) func(http.Handler) http.Handler {
 			}
 
 			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
 				return
 			}
 

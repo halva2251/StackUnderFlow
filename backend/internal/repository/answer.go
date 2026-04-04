@@ -38,10 +38,6 @@ func (r *AnswerRepository) Create(ctx context.Context, q Querier, questionID, us
 
 // GetByQuestionID retrieves answers by question ID using the provided Querier (transaction or pool).
 func (r *AnswerRepository) GetByQuestionID(ctx context.Context, q Querier, questionID string) ([]model.Answer, error) {
-	return r.GetByQuestionIDTx(ctx, q, questionID)
-}
-
-func (r *AnswerRepository) GetByQuestionIDTx(ctx context.Context, q Querier, questionID string) ([]model.Answer, error) {
 	rows, err := q.Query(ctx,
 		`SELECT id, question_id, COALESCE(user_id::text, ''), depth, COALESCE(user_prompt, ''), ai_response, upvotes, downvotes, created_at
 		 FROM answers WHERE question_id = $1
@@ -71,10 +67,6 @@ func (r *AnswerRepository) GetByQuestionIDTx(ctx context.Context, q Querier, que
 
 // GetMaxDepth retrieves the maximum depth of answers for a question using the provided Querier (transaction or pool).
 func (r *AnswerRepository) GetMaxDepth(ctx context.Context, q Querier, questionID string) (int, error) {
-	return r.GetMaxDepthTx(ctx, q, questionID)
-}
-
-func (r *AnswerRepository) GetMaxDepthTx(ctx context.Context, q Querier, questionID string) (int, error) {
 	var depth int
 	err := q.QueryRow(ctx,
 		`SELECT COALESCE(MAX(depth), -1) FROM answers WHERE question_id = $1`,
@@ -91,10 +83,6 @@ func (r *AnswerRepository) GetMaxDepthTx(ctx context.Context, q Querier, questio
 
 // GetByID retrieves an answer by ID using the provided Querier (transaction or pool).
 func (r *AnswerRepository) GetByID(ctx context.Context, q Querier, id string) (*model.Answer, error) {
-	return r.GetByIDTx(ctx, q, id)
-}
-
-func (r *AnswerRepository) GetByIDTx(ctx context.Context, q Querier, id string) (*model.Answer, error) {
 	var a model.Answer
 	err := q.QueryRow(ctx,
 		`SELECT id, question_id, COALESCE(user_id::text, ''), depth, COALESCE(user_prompt, ''), ai_response, upvotes, downvotes, created_at

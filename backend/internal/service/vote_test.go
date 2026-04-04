@@ -98,6 +98,10 @@ func (m *mockTxBeginnerWithExec) Begin(_ context.Context) (repository.Tx, error)
 	return m.tx, nil
 }
 
+func (m *mockTxBeginnerWithExec) Pool() repository.Querier {
+	return m.tx
+}
+
 // --- Tests: Vote ---
 
 func TestVote_NewUpvote(t *testing.T) {
@@ -260,4 +264,8 @@ type mockTxBeginnerNotFound struct {
 
 func (m *mockTxBeginnerNotFound) Begin(_ context.Context) (repository.Tx, error) {
 	return m.tx, nil
+}
+
+func (m *mockTxBeginnerNotFound) Pool() repository.Querier {
+	return m.tx
 }

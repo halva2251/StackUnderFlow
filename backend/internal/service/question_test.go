@@ -47,6 +47,10 @@ func (m *mockTxBeginner) Begin(_ context.Context) (repository.Tx, error) {
 	return &mockTx{}, nil
 }
 
+func (m *mockTxBeginner) Pool() repository.Querier {
+	return &mockTx{}
+}
+
 // --- Mock AI client ---
 
 type mockAIClient struct {

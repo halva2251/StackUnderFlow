@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 TRAINING_DIR = Path(__file__).parent.parent
 DATA_DIR = TRAINING_DIR / "data"
 
+GROQ_REQUEST_DELAY_SECONDS = 2.1  # Rate-limit-friendly delay between Groq API requests
+
 # Programming questions to use when no SO data is available
 FALLBACK_QUESTIONS = [
     {"title": "How do I center a div in CSS?", "body": "I've been trying to center a div horizontally and vertically on the page but nothing works."},
@@ -192,6 +194,14 @@ class GroqGenerator:
             "Authorization": f"Bearer {api_key}",
         })
 
+    @staticmethod
+    def _parse_completion_response(response_json: dict[str, Any]) -> str | None:
+        """Extract the text content from a Groq chat completions response dict."""
+        if not response_json.get("choices"):
+            return None
+        content: str | None = response_json["choices"][0]["message"]["content"]
+        return content
+
     def generate(
         self,
         system_prompt: str,
@@ -232,20 +242,9 @@ class GroqGenerator:
                     logger.warning("Still rate limited. Skipping.")
                     return None
                 resp.raise_for_status()
-                data: dict[str, Any] = resp.json()
-                if not data.get("choices"):
-                    return None
-                result: str = data["choices"][0]["message"]["content"]
-                return result
 
             resp.raise_for_status()
-            data = resp.json()
-
-            if not data.get("choices"):
-                return None
-
-            result = data["choices"][0]["message"]["content"]
-            return result
+            return self._parse_completion_response(resp.json())
 
         except (requests.RequestException, KeyError, IndexError) as e:
             logger.error("API error: %s: %s", type(e).__name__, e)
@@ -267,7 +266,7 @@ def load_questions(source_path: str | None, questions_file: str | None) -> list[
         path = Path(source_path)
         if not path.exists():
             logger.warning("Provided --source path not found: %s", path)
-        elif path.exists():
+        else:
             with open(path, encoding="utf-8") as f:
                 for line_num, raw_line in enumerate(f, 1):
                     try:
@@ -287,7 +286,7 @@ def load_questions(source_path: str | None, questions_file: str | None) -> list[
         path = Path(questions_file)
         if not path.exists():
             logger.warning("Provided --questions-file not found: %s", path)
-        elif path.exists():
+        else:
             with open(path, encoding="utf-8") as f:
                 for raw_line in f:
                     stripped = raw_line.strip()
@@ -330,7 +329,7 @@ def generate_single_data(
             max_tokens=max_tok,
         )
         if not answer:
-            time.sleep(2)
+            time.sleep(GROQ_REQUEST_DELAY_SECONDS)
             continue
 
         results.append({
@@ -341,7 +340,7 @@ def generate_single_data(
             "tags": q.get("tags", []),
         })
 
-        time.sleep(2.1)
+        time.sleep(GROQ_REQUEST_DELAY_SECONDS)
 
     return results
 
@@ -396,7 +395,7 @@ def generate_conversation_data(
                 if not pushback:
                     break
                 user_msg = pushback
-                time.sleep(2.1)
+                time.sleep(GROQ_REQUEST_DELAY_SECONDS)
 
             max_tok = MOOD_MAX_TOKENS.get(mood, 512)
             answer = generator.generate(
@@ -411,7 +410,7 @@ def generate_conversation_data(
             conversation.append({"from": "gpt", "value": answer})
             moods_used.append(mood)
             prev_answer = answer
-            time.sleep(2.1)
+            time.sleep(GROQ_REQUEST_DELAY_SECONDS)
 
         if len(conversation) >= 2:
             results.append({

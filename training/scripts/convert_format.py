@@ -36,6 +36,8 @@ from html import unescape
 from pathlib import Path
 from typing import Any
 
+from scripts.constants import CHARACTER_BREAKS
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -60,17 +62,8 @@ SYSTEM_PROMPT = (
 
 # Phrases that mean the generator LLM broke character.
 # Entries containing these are dropped from the training set.
-_CHARACTER_BREAKS = [
-    "as an ai language model",
-    "as a language model",
-    "i'm just an ai",
-    "i cannot provide",
-    "i cannot assist",
-    "actually, i was wrong",
-    "i apologize for the confusion",
-    "let me correct myself",
-    "i should clarify that my previous",
-]
+# Imported from scripts.constants — kept in sync with inspect_data.py.
+_CHARACTER_BREAKS = CHARACTER_BREAKS
 
 # Per-mood minimum output length (chars). Shorter entries are dropped.
 _MIN_OUTPUT_CHARS: dict[str, int] = {

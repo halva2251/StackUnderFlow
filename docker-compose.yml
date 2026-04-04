@@ -40,12 +40,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: stackunderflow-frontend
-    depends_on:
-      nginx:
-        condition: service_started
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://nginx/api/v1
     networks:
       - frontend
     restart: unless-stopped

@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -118,17 +118,21 @@ func (h *QuestionHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if l := r.URL.Query().Get("limit"); l != "" {
-		if _, err := fmt.Sscanf(l, "%d", &limit); err != nil || limit <= 0 || limit > 100 {
+		parsed, err := strconv.Atoi(l)
+		if err != nil || parsed <= 0 || parsed > 100 {
 			WriteError(w, http.StatusBadRequest, "INVALID_PARAM", "limit must be between 1 and 100")
 			return
 		}
+		limit = parsed
 	}
 
 	if o := r.URL.Query().Get("offset"); o != "" {
-		if _, err := fmt.Sscanf(o, "%d", &offset); err != nil || offset < 0 {
+		parsed, err := strconv.Atoi(o)
+		if err != nil || parsed < 0 {
 			WriteError(w, http.StatusBadRequest, "INVALID_PARAM", "offset must be non-negative")
 			return
 		}
+		offset = parsed
 	}
 
 	result, err := h.service.ListQuestions(r.Context(), sort, limit, offset)
